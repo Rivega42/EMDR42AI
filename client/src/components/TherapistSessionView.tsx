@@ -42,7 +42,11 @@ import {
   Eye,
   Timer,
   Target,
-  CheckCircle2
+  CheckCircle2,
+  ChevronUp,
+  ChevronDown,
+  Move,
+  X
 } from "lucide-react";
 import Header from "./Header";
 
@@ -53,6 +57,17 @@ export default function TherapistSessionView() {
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  
+  // Floating panels state
+  const [panelStates, setPanelStates] = useState({
+    controls: { isExpanded: false, position: { x: 20, y: 20 }, isDragging: false },
+    emdr: { isExpanded: false, position: { x: 20, y: 100 }, isDragging: false },
+    session: { isExpanded: false, position: { x: 20, y: 180 }, isDragging: false },
+    notes: { isExpanded: false, position: { x: 20, y: 260 }, isDragging: false },
+    assessment: { isExpanded: false, position: { x: 20, y: 340 }, isDragging: false }
+  });
+  
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   
   // EMDR Game State
   const [isEMDRActive, setIsEMDRActive] = useState(false);
@@ -73,6 +88,10 @@ export default function TherapistSessionView() {
   // Session Notes and Protocol
   const [sessionNotes, setSessionNotes] = useState('');
   const [targetMemory, setTargetMemory] = useState('');
+  
+  // Assessment states
+  const [sudsLevel, setSudsLevel] = useState(5);
+  const [vocLevel, setVocLevel] = useState(4);
   const [negativeBeliefs, setNegativeBeliefs] = useState('');
   const [positiveBeliefs, setPositiveBeliefs] = useState('');
   const [emotionRating, setEmotionRating] = useState([5]);
@@ -216,11 +235,533 @@ export default function TherapistSessionView() {
     console.log('Sending instruction:', currentInstruction);
   };
 
+  // Drag and drop functions
+  const handleMouseDown = (panelId: keyof typeof panelStates, e: React.MouseEvent) => {
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    setDragOffset({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    });
+    
+    setPanelStates(prev => ({
+      ...prev,
+      [panelId]: { ...prev[panelId], isDragging: true }
+    }));
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    Object.entries(panelStates).forEach(([panelId, state]) => {
+      if (state.isDragging) {
+        setPanelStates(prev => ({
+          ...prev,
+          [panelId]: {
+            ...prev[panelId as keyof typeof panelStates],
+            position: {
+              x: e.clientX - dragOffset.x,
+              y: e.clientY - dragOffset.y
+            }
+          }
+        }));
+      }
+    });
+  };
+
+  const handleMouseUp = () => {
+    setPanelStates(prev => {
+      const newState = { ...prev };
+      Object.keys(newState).forEach(key => {
+        newState[key as keyof typeof panelStates].isDragging = false;
+      });
+      return newState;
+    });
+  };
+
+  const togglePanel = (panelId: keyof typeof panelStates) => {
+    setPanelStates(prev => ({
+      ...prev,
+      [panelId]: { ...prev[panelId], isExpanded: !prev[panelId].isExpanded }
+    }));
+  };
+
+  // New floating panels interface
+  const NewTherapistFloatingUI = () => (
+    <div 
+      className="fixed inset-0 bg-black"
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+    >
+      {/* Full-screen video background */}
+      <div className="absolute inset-0">
+        {isConnected ? (
+          <div className="w-full h-full bg-gradient-to-br from-blue-900 to-purple-900 flex items-center justify-center text-white relative">
+            {/* Main patient video */}
+            <div className="text-center">
+              <div className="w-32 h-32 bg-blue-500 rounded-full mx-auto mb-6 flex items-center justify-center">
+                <span className="text-4xl font-bold">{patient.name.charAt(0)}</span>
+              </div>
+              <p className="text-2xl font-medium">{patient.name}</p>
+              <p className="text-lg opacity-75">{patient.diagnosis}</p>
+            </div>
+            
+            {/* Therapist video in corner */}
+            <div className="absolute bottom-4 right-4 w-48 h-36 bg-gray-800 rounded-lg overflow-hidden border-2 border-white/20">
+              {videoEnabled ? (
+                <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center text-white">
+                  <div className="text-center">
+                    <div className="w-12 h-12 bg-green-500 rounded-full mx-auto mb-2 flex items-center justify-center">
+                      <span className="text-lg font-bold">{user.name.charAt(0)}</span>
+                    </div>
+                    <p className="text-sm">{user.name}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-gray-400 bg-gray-800">
+                  <VideoOff className="w-8 h-8" />
+                </div>
+              )}
+            </div>
+
+            {/* EMDR Canvas overlay */}
+            {isEMDRActive && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <canvas 
+                  ref={gameCanvasRef}
+                  width={800}
+                  height={300}
+                  className="bg-transparent"
+                  style={{ backgroundColor: emdrSettings.backgroundColor }}
+                />
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-white bg-gray-900">
+            <div className="text-center">
+              <User className="w-24 h-24 mx-auto mb-4 text-gray-400" />
+              <p className="text-xl">Ожидание подключения пациента...</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Floating Control Panel */}
+      <div
+        className={`absolute bg-black/80 backdrop-blur-sm border border-white/20 rounded-lg transition-all duration-300 ${
+          panelStates.controls.isExpanded ? 'w-80' : 'w-16'
+        } h-16`}
+        style={{
+          left: panelStates.controls.position.x,
+          top: panelStates.controls.position.y,
+          cursor: panelStates.controls.isDragging ? 'grabbing' : 'grab'
+        }}
+      >
+        <div 
+          className="flex items-center h-full px-4"
+          onMouseDown={(e) => handleMouseDown('controls', e)}
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-white hover:bg-white/20"
+            onClick={() => togglePanel('controls')}
+            data-testid="button-toggle-controls"
+          >
+            <Settings className="w-5 h-5" />
+          </Button>
+          
+          {panelStates.controls.isExpanded && (
+            <div className="flex items-center space-x-2 ml-4">
+              {!isConnected ? (
+                <Button 
+                  size="sm"
+                  onClick={() => setIsConnected(true)}
+                  data-testid="button-connect"
+                >
+                  <Phone className="w-4 h-4 mr-2" />
+                  Подключиться
+                </Button>
+              ) : (
+                <Button 
+                  variant="destructive" 
+                  size="sm"
+                  onClick={() => setIsConnected(false)}
+                  data-testid="button-disconnect"
+                >
+                  <PhoneOff className="w-4 h-4 mr-2" />
+                  Завершить
+                </Button>
+              )}
+              
+              <Button
+                variant={videoEnabled ? "default" : "outline"}
+                size="icon"
+                onClick={() => setVideoEnabled(!videoEnabled)}
+                data-testid="button-toggle-video"
+              >
+                {videoEnabled ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
+              </Button>
+              
+              <Button
+                variant={audioEnabled ? "default" : "outline"}
+                size="icon"
+                onClick={() => setAudioEnabled(!audioEnabled)}
+                data-testid="button-toggle-audio"
+              >
+                {audioEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Floating EMDR Panel */}
+      <div
+        className={`absolute bg-black/80 backdrop-blur-sm border border-white/20 rounded-lg transition-all duration-300 ${
+          panelStates.emdr.isExpanded ? 'w-96 h-48' : 'w-16 h-16'
+        }`}
+        style={{
+          left: panelStates.emdr.position.x,
+          top: panelStates.emdr.position.y,
+          cursor: panelStates.emdr.isDragging ? 'grabbing' : 'grab'
+        }}
+      >
+        <div 
+          className="flex items-center h-16 px-4"
+          onMouseDown={(e) => handleMouseDown('emdr', e)}
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-white hover:bg-white/20"
+            onClick={() => togglePanel('emdr')}
+            data-testid="button-toggle-emdr"
+          >
+            <Circle className="w-5 h-5" />
+          </Button>
+          
+          {panelStates.emdr.isExpanded && (
+            <div className="flex items-center space-x-2 ml-4">
+              {!isEMDRActive ? (
+                <Button 
+                  size="sm"
+                  onClick={() => setIsEMDRActive(true)}
+                  disabled={!isConnected}
+                  data-testid="button-start-emdr"
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  Старт EMDR
+                </Button>
+              ) : (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => setIsEMDRActive(false)}
+                  data-testid="button-stop-emdr"
+                >
+                  <Pause className="w-4 h-4 mr-2" />
+                  Стоп
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+        
+        {panelStates.emdr.isExpanded && (
+          <div className="px-4 pb-4 text-white space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-xs">Скорость: {emdrSettings.speed}</p>
+                <input 
+                  type="range" 
+                  min="1" 
+                  max="10" 
+                  value={emdrSettings.speed}
+                  onChange={(e) => setEmdrSettings(prev => ({ ...prev, speed: Number(e.target.value) }))}
+                  className="w-full h-1 bg-gray-600 rounded"
+                  disabled={isEMDRActive}
+                  data-testid="slider-speed"
+                />
+              </div>
+              <div>
+                <p className="text-xs">Размер: {emdrSettings.ballSize}px</p>
+                <input 
+                  type="range" 
+                  min="10" 
+                  max="40" 
+                  value={emdrSettings.ballSize}
+                  onChange={(e) => setEmdrSettings(prev => ({ ...prev, ballSize: Number(e.target.value) }))}
+                  className="w-full h-1 bg-gray-600 rounded"
+                  disabled={isEMDRActive}
+                  data-testid="slider-size"
+                />
+              </div>
+            </div>
+            <p className="text-sm">
+              {isEMDRActive ? 'EMDR активна' : 'EMDR остановлена'}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Floating Session Management Panel */}
+      <div
+        className={`absolute bg-black/80 backdrop-blur-sm border border-white/20 rounded-lg transition-all duration-300 ${
+          panelStates.session.isExpanded ? 'w-80 h-56' : 'w-16 h-16'
+        }`}
+        style={{
+          left: panelStates.session.position.x,
+          top: panelStates.session.position.y,
+          cursor: panelStates.session.isDragging ? 'grabbing' : 'grab'
+        }}
+      >
+        <div 
+          className="flex items-center h-16 px-4"
+          onMouseDown={(e) => handleMouseDown('session', e)}
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-white hover:bg-white/20"
+            onClick={() => togglePanel('session')}
+            data-testid="button-toggle-session"
+          >
+            <Activity className="w-5 h-5" />
+          </Button>
+          
+          {panelStates.session.isExpanded && (
+            <div className="ml-4 text-white">
+              <p className="text-sm font-medium">Управление сессией</p>
+            </div>
+          )}
+        </div>
+        
+        {panelStates.session.isExpanded && (
+          <div className="px-4 pb-4 text-white space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <span>Фаза:</span>
+              <Badge className={getPhaseColor(sessionPhase)} data-testid="badge-session-phase">
+                {getPhaseLabel(sessionPhase)}
+              </Badge>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span>Время:</span>
+              <span className="flex items-center">
+                <Clock className="w-4 h-4 mr-1" />
+                {formatTime(sessionDuration)}
+              </span>
+            </div>
+            <Button 
+              size="sm" 
+              onClick={nextPhase} 
+              disabled={!isConnected}
+              className="w-full"
+              data-testid="button-next-phase"
+            >
+              <CheckCircle2 className="w-4 h-4 mr-2" />
+              Следующая фаза
+            </Button>
+            <textarea 
+              placeholder="Инструкция для пациента..."
+              value={currentInstruction}
+              onChange={(e) => setCurrentInstruction(e.target.value)}
+              className="w-full h-16 px-2 py-1 text-black text-sm rounded"
+              data-testid="textarea-instruction"
+            />
+            <Button 
+              size="sm" 
+              onClick={sendInstruction}
+              disabled={!currentInstruction.trim() || !isConnected}
+              className="w-full"
+              data-testid="button-send-instruction"
+            >
+              <Zap className="w-4 h-4 mr-2" />
+              Отправить
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Floating Notes Panel */}
+      <div
+        className={`absolute bg-black/80 backdrop-blur-sm border border-white/20 rounded-lg transition-all duration-300 ${
+          panelStates.notes.isExpanded ? 'w-80 h-64' : 'w-16 h-16'
+        }`}
+        style={{
+          left: panelStates.notes.position.x,
+          top: panelStates.notes.position.y,
+          cursor: panelStates.notes.isDragging ? 'grabbing' : 'grab'
+        }}
+      >
+        <div 
+          className="flex items-center h-16 px-4"
+          onMouseDown={(e) => handleMouseDown('notes', e)}
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-white hover:bg-white/20"
+            onClick={() => togglePanel('notes')}
+            data-testid="button-toggle-notes"
+          >
+            <FileText className="w-5 h-5" />
+          </Button>
+          
+          {panelStates.notes.isExpanded && (
+            <div className="ml-4 text-white">
+              <p className="text-sm font-medium">Заметки сессии</p>
+            </div>
+          )}
+        </div>
+        
+        {panelStates.notes.isExpanded && (
+          <div className="px-4 pb-4 space-y-3">
+            <div>
+              <p className="text-white text-xs mb-1">Целевое воспоминание:</p>
+              <textarea 
+                placeholder="Целевое воспоминание..."
+                value={targetMemory}
+                onChange={(e) => setTargetMemory(e.target.value)}
+                className="w-full h-16 px-2 py-1 text-black text-sm rounded"
+                data-testid="textarea-target-memory"
+              />
+            </div>
+            <div>
+              <p className="text-white text-xs mb-1">Заметки:</p>
+              <textarea 
+                placeholder="Заметки о сессии..."
+                value={sessionNotes}
+                onChange={(e) => setSessionNotes(e.target.value)}
+                className="w-full h-20 px-2 py-1 text-black text-sm rounded"
+                data-testid="textarea-session-notes"
+              />
+            </div>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="w-full text-white border-white/20"
+              data-testid="button-save-notes"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              Сохранить
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Floating Assessment Panel */}
+      <div
+        className={`absolute bg-black/80 backdrop-blur-sm border border-white/20 rounded-lg transition-all duration-300 ${
+          panelStates.assessment.isExpanded ? 'w-80 h-48' : 'w-16 h-16'
+        }`}
+        style={{
+          left: panelStates.assessment.position.x,
+          top: panelStates.assessment.position.y,
+          cursor: panelStates.assessment.isDragging ? 'grabbing' : 'grab'
+        }}
+      >
+        <div 
+          className="flex items-center h-16 px-4"
+          onMouseDown={(e) => handleMouseDown('assessment', e)}
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-white hover:bg-white/20"
+            onClick={() => togglePanel('assessment')}
+            data-testid="button-toggle-assessment"
+          >
+            <Target className="w-5 h-5" />
+          </Button>
+          
+          {panelStates.assessment.isExpanded && (
+            <div className="ml-4 text-white">
+              <p className="text-sm font-medium">Оценка состояния</p>
+            </div>
+          )}
+        </div>
+        
+        {panelStates.assessment.isExpanded && (
+          <div className="px-4 pb-4 text-white space-y-3">
+            <div>
+              <p className="text-xs mb-1">SUDS уровень: {sudsLevel}</p>
+              <input 
+                type="range" 
+                min="0" 
+                max="10" 
+                value={sudsLevel}
+                onChange={(e) => setSudsLevel(Number(e.target.value))}
+                className="w-full h-1 bg-gray-600 rounded"
+                data-testid="slider-suds"
+              />
+              <div className="flex justify-between text-xs text-gray-300 mt-1">
+                <span>Нет беспокойства</span>
+                <span>Максимум</span>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs mb-1">VOC уровень: {vocLevel}</p>
+              <input 
+                type="range" 
+                min="1" 
+                max="7" 
+                value={vocLevel}
+                onChange={(e) => setVocLevel(Number(e.target.value))}
+                className="w-full h-1 bg-gray-600 rounded"
+                data-testid="slider-voc"
+              />
+              <div className="flex justify-between text-xs text-gray-300 mt-1">
+                <span>Не верно</span>
+                <span>Полностью верно</span>
+              </div>
+            </div>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="w-full text-white border-white/20"
+              data-testid="button-record-assessment"
+            >
+              <FileText className="w-4 h-4 mr-2" />
+              Записать оценку
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Emergency buttons in top-right */}
+      <div className="absolute top-4 right-4 space-x-2">
+        <Button 
+          variant="outline" 
+          size="sm" 
+          className="bg-black/80 text-orange-400 border-orange-400/50 hover:bg-orange-400/20"
+          data-testid="button-emergency-pause"
+        >
+          <Pause className="w-4 h-4 mr-2" />
+          Пауза
+        </Button>
+        <Button 
+          variant="destructive" 
+          size="sm"
+          className="bg-red-900/80 hover:bg-red-900"
+          data-testid="button-emergency-stop"
+        >
+          <AlertCircle className="w-4 h-4 mr-2" />
+          SOS
+        </Button>
+      </div>
+    </div>
+  );
+
+  // Use new floating UI
+  if (true) return <NewTherapistFloatingUI />;
+
   return (
-    <div className="min-h-screen bg-background">
-      <Header user={user} onThemeToggle={() => setIsDark(!isDark)} isDark={isDark} />
-      
-      <div className="max-w-7xl mx-auto px-4 py-6">
+    <div 
+      className="fixed inset-0 bg-black"
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+    >
+      {/* Full-screen video background */}
+      <div className="absolute inset-0">
         {/* Session Header */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-4">
