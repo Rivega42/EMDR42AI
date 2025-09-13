@@ -8,6 +8,11 @@ import PatientDashboardPage from "@/pages/PatientDashboardPage";
 import TherapistDashboardPage from "@/pages/TherapistDashboardPage";
 import AdminDashboardPage from "@/pages/AdminDashboardPage";
 import EMDRSessionPage from "@/pages/EMDRSessionPage";
+import PatientSettingsPage from "@/pages/PatientSettingsPage";
+import TherapistSettingsPage from "@/pages/TherapistSettingsPage";
+import AdminSettingsPage from "@/pages/AdminSettingsPage";
+import PatientSessionPage from "@/pages/PatientSessionPage";
+import TherapistSessionPage from "@/pages/TherapistSessionPage";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -18,6 +23,11 @@ function Router() {
       <Route path="/therapist" component={TherapistDashboardPage} />
       <Route path="/admin" component={AdminDashboardPage} />
       <Route path="/session" component={EMDRSessionPage} />
+      <Route path="/patient/settings" component={PatientSettingsPage} />
+      <Route path="/therapist/settings" component={TherapistSettingsPage} />
+      <Route path="/admin/settings" component={AdminSettingsPage} />
+      <Route path="/patient/session" component={PatientSessionPage} />
+      <Route path="/therapist/session" component={TherapistSessionPage} />
       {/* Fallback to 404 */}
       <Route component={NotFound} />
     </Switch>

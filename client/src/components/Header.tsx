@@ -46,17 +46,59 @@ export default function Header({ user, onThemeToggle, isDark = false }: HeaderPr
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center space-x-6">
-            <a href="/patient" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="link-patient">
-              Пациент
-            </a>
-            <a href="/therapist" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="link-therapist">
-              Терапевт
-            </a>
-            <a href="/admin" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="link-admin">
-              Админ
-            </a>
+            <div className="relative group">
+              <a href="/patient" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="link-patient">
+                Пациент
+              </a>
+              <div className="absolute top-full left-0 mt-2 w-48 bg-popover border rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+                <div className="p-2 space-y-1">
+                  <a href="/patient" className="block px-2 py-1 text-sm hover:bg-accent rounded" data-testid="link-patient-dashboard">
+                    Личный кабинет
+                  </a>
+                  <a href="/patient/settings" className="block px-2 py-1 text-sm hover:bg-accent rounded" data-testid="link-patient-settings">
+                    Настройки
+                  </a>
+                  <a href="/patient/session" className="block px-2 py-1 text-sm hover:bg-accent rounded" data-testid="link-patient-session">
+                    Моя сессия
+                  </a>
+                </div>
+              </div>
+            </div>
+            <div className="relative group">
+              <a href="/therapist" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="link-therapist">
+                Терапевт
+              </a>
+              <div className="absolute top-full left-0 mt-2 w-48 bg-popover border rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+                <div className="p-2 space-y-1">
+                  <a href="/therapist" className="block px-2 py-1 text-sm hover:bg-accent rounded" data-testid="link-therapist-dashboard">
+                    Личный кабинет
+                  </a>
+                  <a href="/therapist/settings" className="block px-2 py-1 text-sm hover:bg-accent rounded" data-testid="link-therapist-settings">
+                    Настройки
+                  </a>
+                  <a href="/therapist/session" className="block px-2 py-1 text-sm hover:bg-accent rounded" data-testid="link-therapist-session">
+                    Управление сессией
+                  </a>
+                </div>
+              </div>
+            </div>
+            <div className="relative group">
+              <a href="/admin" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="link-admin">
+                Админ
+              </a>
+              <div className="absolute top-full left-0 mt-2 w-48 bg-popover border rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+                <div className="p-2 space-y-1">
+                  <a href="/admin" className="block px-2 py-1 text-sm hover:bg-accent rounded" data-testid="link-admin-dashboard">
+                    Админ панель
+                  </a>
+                  <a href="/admin/settings" className="block px-2 py-1 text-sm hover:bg-accent rounded" data-testid="link-admin-settings">
+                    Настройки системы
+                  </a>
+                </div>
+              </div>
+            </div>
             <a href="/session" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="link-session">
-              EMDR Сессия
+              EMDR Игра
             </a>
           </nav>
 
@@ -144,18 +186,44 @@ export default function Header({ user, onThemeToggle, isDark = false }: HeaderPr
         {mobileMenuOpen && (
           <div className="md:hidden border-t border-border">
             <div className="px-2 pt-2 pb-3 space-y-1">
-              <a href="/patient" className="block px-3 py-2 text-base text-muted-foreground hover:text-foreground" data-testid="link-mobile-patient">
-                Пациент
-              </a>
-              <a href="/therapist" className="block px-3 py-2 text-base text-muted-foreground hover:text-foreground" data-testid="link-mobile-therapist">
-                Терапевт
-              </a>
-              <a href="/admin" className="block px-3 py-2 text-base text-muted-foreground hover:text-foreground" data-testid="link-mobile-admin">
-                Админ
-              </a>
-              <a href="/session" className="block px-3 py-2 text-base text-muted-foreground hover:text-foreground" data-testid="link-mobile-session">
-                EMDR Сессия
-              </a>
+              <div className="space-y-1">
+                <p className="px-3 py-1 text-sm font-medium text-foreground">Пациент</p>
+                <a href="/patient" className="block px-6 py-1 text-sm text-muted-foreground hover:text-foreground" data-testid="link-mobile-patient">
+                  Личный кабинет
+                </a>
+                <a href="/patient/settings" className="block px-6 py-1 text-sm text-muted-foreground hover:text-foreground" data-testid="link-mobile-patient-settings">
+                  Настройки
+                </a>
+                <a href="/patient/session" className="block px-6 py-1 text-sm text-muted-foreground hover:text-foreground" data-testid="link-mobile-patient-session">
+                  Моя сессия
+                </a>
+              </div>
+              <div className="space-y-1 pt-2">
+                <p className="px-3 py-1 text-sm font-medium text-foreground">Терапевт</p>
+                <a href="/therapist" className="block px-6 py-1 text-sm text-muted-foreground hover:text-foreground" data-testid="link-mobile-therapist">
+                  Личный кабинет
+                </a>
+                <a href="/therapist/settings" className="block px-6 py-1 text-sm text-muted-foreground hover:text-foreground" data-testid="link-mobile-therapist-settings">
+                  Настройки
+                </a>
+                <a href="/therapist/session" className="block px-6 py-1 text-sm text-muted-foreground hover:text-foreground" data-testid="link-mobile-therapist-session">
+                  Управление сессией
+                </a>
+              </div>
+              <div className="space-y-1 pt-2">
+                <p className="px-3 py-1 text-sm font-medium text-foreground">Админ</p>
+                <a href="/admin" className="block px-6 py-1 text-sm text-muted-foreground hover:text-foreground" data-testid="link-mobile-admin">
+                  Админ панель
+                </a>
+                <a href="/admin/settings" className="block px-6 py-1 text-sm text-muted-foreground hover:text-foreground" data-testid="link-mobile-admin-settings">
+                  Настройки системы
+                </a>
+              </div>
+              <div className="pt-2">
+                <a href="/session" className="block px-3 py-2 text-base text-muted-foreground hover:text-foreground" data-testid="link-mobile-session">
+                  EMDR Игра
+                </a>
+              </div>
               {!user && (
                 <div className="px-3 py-2 space-y-2">
                   <Button variant="ghost" className="w-full justify-start" data-testid="button-mobile-login">
