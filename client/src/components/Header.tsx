@@ -45,18 +45,18 @@ export default function Header({ user, onThemeToggle, isDark = false }: HeaderPr
           </div>
 
           {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center space-x-8">
-            <a href="/about" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="link-about">
-              О платформе
+          <nav className="hidden md:flex items-center space-x-6">
+            <a href="/patient" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="link-patient">
+              Пациент
             </a>
-            <a href="/therapists" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="link-therapists">
-              Психологи
+            <a href="/therapist" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="link-therapist">
+              Терапевт
             </a>
-            <a href="/how-it-works" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="link-how-it-works">
-              Как это работает
+            <a href="/admin" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="link-admin">
+              Админ
             </a>
-            <a href="/contact" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="link-contact">
-              Контакты
+            <a href="/session" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="link-session">
+              EMDR Сессия
             </a>
           </nav>
 
@@ -144,17 +144,17 @@ export default function Header({ user, onThemeToggle, isDark = false }: HeaderPr
         {mobileMenuOpen && (
           <div className="md:hidden border-t border-border">
             <div className="px-2 pt-2 pb-3 space-y-1">
-              <a href="/about" className="block px-3 py-2 text-base text-muted-foreground hover:text-foreground" data-testid="link-mobile-about">
-                О платформе
+              <a href="/patient" className="block px-3 py-2 text-base text-muted-foreground hover:text-foreground" data-testid="link-mobile-patient">
+                Пациент
               </a>
-              <a href="/therapists" className="block px-3 py-2 text-base text-muted-foreground hover:text-foreground" data-testid="link-mobile-therapists">
-                Психологи
+              <a href="/therapist" className="block px-3 py-2 text-base text-muted-foreground hover:text-foreground" data-testid="link-mobile-therapist">
+                Терапевт
               </a>
-              <a href="/how-it-works" className="block px-3 py-2 text-base text-muted-foreground hover:text-foreground" data-testid="link-mobile-how-it-works">
-                Как это работает
+              <a href="/admin" className="block px-3 py-2 text-base text-muted-foreground hover:text-foreground" data-testid="link-mobile-admin">
+                Админ
               </a>
-              <a href="/contact" className="block px-3 py-2 text-base text-muted-foreground hover:text-foreground" data-testid="link-mobile-contact">
-                Контакты
+              <a href="/session" className="block px-3 py-2 text-base text-muted-foreground hover:text-foreground" data-testid="link-mobile-session">
+                EMDR Сессия
               </a>
               {!user && (
                 <div className="px-3 py-2 space-y-2">
