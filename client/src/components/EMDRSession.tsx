@@ -27,6 +27,24 @@ export default function EMDRSession() {
   const [currentEmotions, setCurrentEmotions] = useState<EmotionData | null>(null);
   const [emotionHistory, setEmotionHistory] = useState<EmotionData[]>([]);
   const emotionSaveIntervalRef = useRef<number | null>(null);
+  const lastSavedEmotionsRef = useRef<EmotionData | null>(null);
+  
+  // Adaptive BLS control with hysteresis
+  const [blsState, setBlsState] = useState<'normal' | 'stressed' | 'low-engagement'>('normal');
+  const lastBlsUpdateRef = useRef<number>(Date.now());
+  const blsDebounceTime = 2000; // 2 seconds debounce
+  
+  // Hysteresis thresholds to prevent oscillations
+  const hysteresis = {
+    stress: {
+      enter: { arousal: 0.7, valence: -0.5 },  // Enter stressed state
+      exit: { arousal: 0.5, valence: -0.3 }    // Exit stressed state
+    },
+    lowEngagement: {
+      enter: { arousal: -0.3 },   // Enter low engagement
+      exit: { arousal: -0.1 }      // Exit low engagement  
+    }
+  };
   
   // TODO: Integrate with real session data from backend/context
   // Participants should be loaded from session context or API
@@ -44,28 +62,25 @@ export default function EMDRSession() {
     }
   }, [sessionActive]);
 
-  // Save emotion snapshots every 5 seconds
+  // Save emotion snapshots every 5 seconds using stable interval
   useEffect(() => {
-    if (sessionActive && currentEmotions) {
-      // Clear previous interval if exists
-      if (emotionSaveIntervalRef.current) {
-        clearInterval(emotionSaveIntervalRef.current);
-      }
-      
-      // Set up new interval for saving emotions
+    if (sessionActive) {
+      // Set up stable interval for saving emotions
       emotionSaveIntervalRef.current = window.setInterval(() => {
-        if (currentEmotions) {
-          saveEmotionSnapshot(currentEmotions);
+        // Use ref to get latest emotions without depending on state
+        if (lastSavedEmotionsRef.current) {
+          saveEmotionSnapshot(lastSavedEmotionsRef.current);
         }
       }, 5000); // Save every 5 seconds
       
       return () => {
         if (emotionSaveIntervalRef.current) {
           clearInterval(emotionSaveIntervalRef.current);
+          emotionSaveIntervalRef.current = null;
         }
       };
     }
-  }, [sessionActive, currentEmotions]);
+  }, [sessionActive]); // Only depend on sessionActive, not currentEmotions
 
   // Handle BLS metrics updates
   const handleBLSMetricsUpdate = (metrics: any) => {
@@ -76,22 +91,82 @@ export default function EMDRSession() {
   // Handle emotion updates from EmotionDisplay
   const handleEmotionUpdate = (emotions: EmotionData) => {
     setCurrentEmotions(emotions);
+    lastSavedEmotionsRef.current = emotions; // Update ref for stable saving
     setEmotionHistory(prev => [...prev.slice(-100), emotions]); // Keep last 100 samples
     
-    // Adaptive BLS control based on emotions
+    // Adaptive BLS control with hysteresis and debounce
     if (blsRef.current && emotions) {
-      // High arousal -> slower speed, calming colors
-      // Low valence -> supportive patterns
-      if (emotions.arousal > 0.7) {
-        blsRef.current.updateConfig({
-          speed: Math.max(1, 5 - Math.floor(emotions.arousal * 3)),
-          color: '#60a5fa' // Calming blue
-        });
-      } else if (emotions.valence < 0.3) {
-        blsRef.current.updateConfig({
-          speed: 4,
-          color: '#fbbf24' // Warm yellow for support
-        });
+      const now = Date.now();
+      const timeSinceLastUpdate = now - lastBlsUpdateRef.current;
+      
+      // Apply debounce - only update if enough time has passed
+      if (timeSinceLastUpdate < blsDebounceTime) {
+        return;
+      }
+      
+      let newState = blsState;
+      
+      // Check transitions with hysteresis
+      if (blsState !== 'stressed') {
+        // Check if should enter stressed state
+        if (emotions.arousal > hysteresis.stress.enter.arousal && 
+            emotions.valence < hysteresis.stress.enter.valence) {
+          newState = 'stressed';
+        }
+      } else {
+        // Check if should exit stressed state
+        if (emotions.arousal < hysteresis.stress.exit.arousal || 
+            emotions.valence > hysteresis.stress.exit.valence) {
+          newState = 'normal';
+        }
+      }
+      
+      if (blsState !== 'low-engagement' && newState !== 'stressed') {
+        // Check if should enter low engagement state
+        if (emotions.arousal < hysteresis.lowEngagement.enter.arousal) {
+          newState = 'low-engagement';
+        }
+      } else if (blsState === 'low-engagement') {
+        // Check if should exit low engagement state
+        if (emotions.arousal > hysteresis.lowEngagement.exit.arousal) {
+          newState = 'normal';
+        }
+      }
+      
+      // Apply state changes if different
+      if (newState !== blsState) {
+        setBlsState(newState);
+        lastBlsUpdateRef.current = now;
+        
+        switch (newState) {
+          case 'stressed':
+            // При высоком стрессе замедлять БЛС
+            blsRef.current.updateConfig({
+              speed: 2, // Медленная скорость для успокоения
+              color: '#60a5fa', // Успокаивающий синий
+              pattern: 'horizontal' // Простой паттерн
+            });
+            break;
+            
+          case 'low-engagement':
+            // При низком вовлечении усиливать стимуляцию
+            blsRef.current.updateConfig({
+              speed: 7, // Быстрая скорость для стимуляции
+              color: '#fbbf24', // Яркий желтый
+              pattern: 'diagonal' // Более активный паттерн
+            });
+            break;
+            
+          case 'normal':
+          default:
+            // Нормальное состояние
+            blsRef.current.updateConfig({
+              speed: 5, // Средняя скорость
+              color: '#34d399', // Сбалансированный зеленый
+              pattern: 'horizontal'
+            });
+            break;
+        }
       }
     }
   };
@@ -99,25 +174,31 @@ export default function EMDRSession() {
   // Save emotion snapshot to database
   const saveEmotionSnapshot = async (emotions: EmotionData) => {
     try {
-      // TODO: Implement actual API call to save emotion data
-      console.log('Saving emotion snapshot:', {
-        timestamp: emotions.timestamp,
-        arousal: emotions.arousal,
-        valence: emotions.valence,
-        phase: phase,
-        sessionTime: sessionTime
+      // Get or create session ID (temporary demo implementation)
+      const sessionId = sessionStorage.getItem('currentSessionId') || 'demo-session-' + Date.now();
+      if (!sessionStorage.getItem('currentSessionId')) {
+        sessionStorage.setItem('currentSessionId', sessionId);
+      }
+      
+      // Save emotion data to backend
+      const response = await fetch('/api/emotions/capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: sessionId,
+          emotionData: emotions,
+          phase: phase,
+          patientId: 'demo-patient', // TODO: Get from auth context
+          blsConfig: blsRef.current?.getConfig ? blsRef.current.getConfig() : null
+        })
       });
       
-      // Example API call:
-      // await fetch('/api/sessions/emotions', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({
-      //     sessionId: sessionId,
-      //     emotionData: emotions,
-      //     phase: phase
-      //   })
-      // });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      console.log('Emotion snapshot saved:', result.captureId);
     } catch (error) {
       console.error('Failed to save emotion snapshot:', error);
     }
@@ -193,7 +274,8 @@ export default function EMDRSession() {
             <BilateralStimulation
               ref={blsRef}
               onMetricsUpdate={handleBLSMetricsUpdate}
-              adaptiveMode={false}
+              emotionData={currentEmotions || undefined}
+              adaptiveMode={sessionActive}
               showControls={true}
               fullscreen={false}
             />

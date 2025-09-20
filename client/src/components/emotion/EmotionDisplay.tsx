@@ -21,6 +21,7 @@ import {
   Zap
 } from 'lucide-react';
 import { faceRecognition } from '@/services/emotion/faceRecognition';
+import CircumplexModel from './CircumplexModel';
 import type { EmotionData } from '@/../../shared/types';
 
 interface EmotionDisplayProps {
@@ -96,11 +97,12 @@ export default function EmotionDisplay({
     setIsVideoStarted(false);
   };
 
-  // Get top N affects sorted by probability
+  // Get top N affects sorted by intensity percentage
   const getTopAffects = (affects: Record<string, number>, n: number = 5) => {
     return Object.entries(affects)
       .sort((a, b) => b[1] - a[1])
-      .slice(0, n);
+      .slice(0, n)
+      .filter(([_, value]) => value > 5); // Only show affects above 5% intensity
   };
 
   // Calculate emotion trend
@@ -323,15 +325,15 @@ export default function EmotionDisplay({
               <Separator />
               
               {/* Circumplex Visualization */}
-              {showCircumplex && (
-                <div className="space-y-2">
-                  <h4 className="text-sm font-medium">Эмоциональное пространство</h4>
-                  <canvas
-                    ref={canvasRef}
-                    width={300}
-                    height={300}
-                    className="w-full max-w-[300px] mx-auto border rounded-lg"
-                    data-testid="emotion-circumplex"
+              {showCircumplex && currentEmotions && (
+                <div className="mt-4">
+                  <CircumplexModel
+                    emotionData={currentEmotions}
+                    showLabels={true}
+                    showGrid={true}
+                    animated={true}
+                    interactive={true}
+                    fullscreen={false}
                   />
                 </div>
               )}
@@ -339,22 +341,38 @@ export default function EmotionDisplay({
               {/* Top Affects */}
               {showTopEmotions && currentEmotions.affects && (
                 <div className="space-y-2">
-                  <h4 className="text-sm font-medium">Топ-5 эмоций</h4>
+                  <h4 className="text-sm font-medium">Топ-5 эмоциональных состояний (из 98)</h4>
                   <div className="space-y-2">
-                    {getTopAffects(currentEmotions.affects).map(([name, value]) => (
-                      <div key={name} className="flex items-center justify-between">
-                        <span className="text-sm">{name}</span>
-                        <div className="flex items-center space-x-2">
-                          <Progress 
-                            value={value * 100} 
-                            className="w-24 h-2" 
-                          />
-                          <span className="text-xs text-muted-foreground w-10 text-right">
-                            {Math.round(value * 100)}%
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                    {getTopAffects(currentEmotions.affects).length > 0 ? (
+                      getTopAffects(currentEmotions.affects).map(([name, value]) => {
+                        // Определяем цвет в зависимости от интенсивности
+                        const getEmotionColor = (intensity: number) => {
+                          if (intensity > 70) return 'text-red-600';
+                          if (intensity > 40) return 'text-orange-600';
+                          if (intensity > 20) return 'text-yellow-600';
+                          return 'text-muted-foreground';
+                        };
+                        
+                        return (
+                          <div key={name} className="flex items-center justify-between">
+                            <span className={`text-sm font-medium ${getEmotionColor(value)}`}>
+                              {name}
+                            </span>
+                            <div className="flex items-center space-x-2">
+                              <Progress 
+                                value={value} 
+                                className="w-24 h-2" 
+                              />
+                              <span className="text-xs font-bold w-12 text-right">
+                                {Math.round(value)}%
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Определяется...</p>
+                    )}
                   </div>
                 </div>
               )}

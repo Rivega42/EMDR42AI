@@ -5,6 +5,7 @@
 
 import * as faceapi from 'face-api.js';
 import type { EmotionData } from '@/../../shared/types';
+import { affects98, calculateAffects, basicEmotionsToArousalValence } from '@/../../shared/emotionAffects';
 
 export interface FaceEmotions {
   neutral: number;
@@ -23,107 +24,7 @@ export interface FaceLandmarks {
   mouth: { x: number; y: number };
 }
 
-// Complete 98 affects mapping from Circumplex model
-const affects98 = {
-  "Adventurous": { arousal: 0.4, valence: 0.6 },
-  "Afraid": { arousal: 0.7, valence: -0.6 },
-  "Alarmed": { arousal: 0.8, valence: -0.5 },
-  "Ambitious": { arousal: 0.5, valence: 0.4 },
-  "Amorous": { arousal: 0.3, valence: 0.7 },
-  "Amused": { arousal: 0.3, valence: 0.6 },
-  "Angry": { arousal: 0.7, valence: -0.7 },
-  "Annoyed": { arousal: 0.4, valence: -0.4 },
-  "Anxious": { arousal: 0.6, valence: -0.3 },
-  "Apathetic": { arousal: -0.6, valence: -0.2 },
-  "Aroused": { arousal: 0.8, valence: 0.3 },
-  "Ashamed": { arousal: -0.2, valence: -0.6 },
-  "Astonished": { arousal: 0.7, valence: 0.2 },
-  "At Ease": { arousal: -0.3, valence: 0.4 },
-  "Attentive": { arousal: 0.2, valence: 0.3 },
-  "Bellicose": { arousal: 0.6, valence: -0.5 },
-  "Bitter": { arousal: 0.1, valence: -0.7 },
-  "Bored": { arousal: -0.5, valence: -0.3 },
-  "Calm": { arousal: -0.4, valence: 0.3 },
-  "Compassionate": { arousal: 0.1, valence: 0.6 },
-  "Conceited": { arousal: 0.2, valence: 0.1 },
-  "Confident": { arousal: 0.3, valence: 0.5 },
-  "Conscientious": { arousal: 0.2, valence: 0.4 },
-  "Contemplative": { arousal: -0.1, valence: 0.2 },
-  "Contemptuous": { arousal: 0.2, valence: -0.6 },
-  "Content": { arousal: -0.2, valence: 0.6 },
-  "Convinced": { arousal: 0.1, valence: 0.4 },
-  "Courageous": { arousal: 0.5, valence: 0.5 },
-  "Defiant": { arousal: 0.5, valence: -0.3 },
-  "Dejected": { arousal: -0.4, valence: -0.5 },
-  "Delighted": { arousal: 0.5, valence: 0.8 },
-  "Depressed": { arousal: -0.6, valence: -0.7 },
-  "Desperate": { arousal: 0.5, valence: -0.8 },
-  "Despondent": { arousal: -0.5, valence: -0.6 },
-  "Determined": { arousal: 0.4, valence: 0.3 },
-  "Disappointed": { arousal: -0.2, valence: -0.5 },
-  "Discontented": { arousal: -0.1, valence: -0.4 },
-  "Disgusted": { arousal: 0.3, valence: -0.7 },
-  "Dissatisfied": { arousal: 0.0, valence: -0.4 },
-  "Distressed": { arousal: 0.6, valence: -0.6 },
-  "Distrustful": { arousal: 0.2, valence: -0.3 },
-  "Doubtful": { arousal: 0.1, valence: -0.2 },
-  "Droopy": { arousal: -0.7, valence: -0.3 },
-  "Embarrassed": { arousal: 0.3, valence: -0.4 },
-  "Enraged": { arousal: 0.9, valence: -0.8 },
-  "Enthusiastic": { arousal: 0.7, valence: 0.7 },
-  "Envious": { arousal: 0.3, valence: -0.5 },
-  "Excited": { arousal: 0.8, valence: 0.6 },
-  "Expectant": { arousal: 0.3, valence: 0.2 },
-  "Feel Guilt": { arousal: -0.1, valence: -0.5 },
-  "Feel Well": { arousal: 0.1, valence: 0.7 },
-  "Feeling Superior": { arousal: 0.3, valence: 0.2 },
-  "Friendly": { arousal: 0.2, valence: 0.7 },
-  "Frustrated": { arousal: 0.5, valence: -0.6 },
-  "Glad": { arousal: 0.4, valence: 0.7 },
-  "Gloomy": { arousal: -0.3, valence: -0.6 },
-  "Happy": { arousal: 0.4, valence: 0.8 },
-  "Hateful": { arousal: 0.6, valence: -0.8 },
-  "Hesitant": { arousal: 0.0, valence: -0.1 },
-  "Hopeful": { arousal: 0.2, valence: 0.5 },
-  "Hostile": { arousal: 0.7, valence: -0.7 },
-  "Impatient": { arousal: 0.5, valence: -0.2 },
-  "Impressed": { arousal: 0.4, valence: 0.5 },
-  "Indignant": { arousal: 0.4, valence: -0.5 },
-  "Insulted": { arousal: 0.5, valence: -0.6 },
-  "Interested": { arousal: 0.3, valence: 0.4 },
-  "Jealous": { arousal: 0.4, valence: -0.6 },
-  "Joyous": { arousal: 0.6, valence: 0.9 },
-  "Languid": { arousal: -0.6, valence: 0.1 },
-  "Lonely": { arousal: -0.3, valence: -0.5 },
-  "Lovestruck": { arousal: 0.4, valence: 0.8 },
-  "Lusting": { arousal: 0.7, valence: 0.5 },
-  "Melancholic": { arousal: -0.4, valence: -0.4 },
-  "Miserable": { arousal: -0.2, valence: -0.8 },
-  "Passive": { arousal: -0.5, valence: 0.0 },
-  "Peaceful": { arousal: -0.5, valence: 0.5 },
-  "Pensive": { arousal: -0.2, valence: 0.1 },
-  "Placid": { arousal: -0.6, valence: 0.3 },
-  "Pleased": { arousal: 0.2, valence: 0.6 },
-  "Polite": { arousal: 0.0, valence: 0.4 },
-  "Quiet": { arousal: -0.4, valence: 0.1 },
-  "Relaxed": { arousal: -0.5, valence: 0.6 },
-  "Reverent": { arousal: -0.1, valence: 0.3 },
-  "Sad": { arousal: -0.3, valence: -0.6 },
-  "Satisfied": { arousal: -0.1, valence: 0.7 },
-  "Scared": { arousal: 0.8, valence: -0.7 },
-  "Serene": { arousal: -0.4, valence: 0.6 },
-  "Sleepy": { arousal: -0.8, valence: 0.0 },
-  "Solemn": { arousal: -0.2, valence: 0.0 },
-  "Still": { arousal: -0.7, valence: 0.2 },
-  "Surprised": { arousal: 0.8, valence: 0.1 },
-  "Suspicious": { arousal: 0.3, valence: -0.3 },
-  "Tense": { arousal: 0.7, valence: -0.4 },
-  "Terrified": { arousal: 0.9, valence: -0.9 },
-  "Tired": { arousal: -0.7, valence: -0.2 },
-  "Tranquil": { arousal: -0.6, valence: 0.4 },
-  "Troubled": { arousal: 0.4, valence: -0.4 },
-  "Vigorous": { arousal: 0.8, valence: 0.4 }
-};
+// Affects98 mapping is now imported from shared/emotionAffects.ts
 
 export class FaceRecognitionService {
   private videoStream: MediaStream | null = null;
@@ -135,7 +36,7 @@ export class FaceRecognitionService {
   private frameCounter: number = 0;
   private smoothingBuffer: EmotionData[] = [];
   private readonly SMOOTHING_WINDOW = 5; // Average over last 5 frames
-  private readonly PROCESS_EVERY_N_FRAMES = 3; // Process every 3rd frame for performance
+  private readonly PROCESS_EVERY_N_FRAMES = 10; // Process every 10th frame for performance
   
   constructor() {
     // Models will be loaded when initialize is called
@@ -305,81 +206,19 @@ export class FaceRecognitionService {
   }
 
   /**
-   * Calculate arousal from basic emotions
+   * Calculate arousal and valence from basic emotions
+   * Returns values in [-1, 1] range
    */
-  private calculateArousal(emotions: FaceEmotions): number {
-    // High arousal emotions: angry, fearful, surprised, excited (happy)
-    // Low arousal emotions: sad, neutral, disgusted
-    const highArousal = emotions.angry * 0.8 + 
-                       emotions.fearful * 0.9 + 
-                       emotions.surprised * 0.8 + 
-                       emotions.happy * 0.6;
-    
-    const lowArousal = emotions.sad * -0.3 + 
-                      emotions.neutral * -0.1 + 
-                      emotions.disgusted * 0.3;
-    
-    // Normalize to 0-1 range
-    const arousal = (highArousal + lowArousal + 0.5) / 2;
-    return Math.max(0, Math.min(1, arousal));
-  }
-
-  /**
-   * Calculate valence from basic emotions
-   */
-  private calculateValence(emotions: FaceEmotions): number {
-    // Positive valence: happy, surprised (slightly)
-    // Negative valence: sad, angry, fearful, disgusted
-    const positive = emotions.happy * 0.9 + 
-                    emotions.surprised * 0.1 +
-                    emotions.neutral * 0.1;
-    
-    const negative = emotions.sad * -0.7 + 
-                    emotions.angry * -0.8 + 
-                    emotions.fearful * -0.6 + 
-                    emotions.disgusted * -0.7;
-    
-    // Normalize to 0-1 range
-    const valence = (positive + negative + 1) / 2;
-    return Math.max(0, Math.min(1, valence));
+  private calculateArousalValence(emotions: FaceEmotions): { arousal: number; valence: number } {
+    return basicEmotionsToArousalValence(emotions);
   }
 
   /**
    * Calculate 98 affects based on arousal and valence
+   * Arousal and valence are already in [-1, 1] range
    */
   private calculateAffects(arousal: number, valence: number): Record<string, number> {
-    const affects: Record<string, number> = {};
-    
-    // Convert arousal and valence to -1 to 1 range for comparison
-    const scaledArousal = arousal * 2 - 1;
-    const scaledValence = valence * 2 - 1;
-    
-    // Calculate distance-based probability for each affect
-    for (const [name, coords] of Object.entries(affects98)) {
-      // Euclidean distance in arousal-valence space
-      const distance = Math.sqrt(
-        Math.pow(scaledArousal - coords.arousal, 2) + 
-        Math.pow(scaledValence - coords.valence, 2)
-      );
-      
-      // Convert distance to probability (0-1)
-      // Max distance is ~2.83 (corner to corner), so normalize
-      const maxDistance = 2.83;
-      const normalizedDistance = distance / maxDistance;
-      
-      // Use gaussian-like function for smoother probability distribution
-      affects[name] = Math.exp(-2 * normalizedDistance * normalizedDistance);
-    }
-    
-    // Normalize affects so they sum to approximately 1
-    const sum = Object.values(affects).reduce((a, b) => a + b, 0);
-    if (sum > 0) {
-      for (const name in affects) {
-        affects[name] = affects[name] / sum;
-      }
-    }
-    
-    return affects;
+    return calculateAffects(arousal, valence);
   }
 
   /**
@@ -540,9 +379,8 @@ export class FaceRecognitionService {
   }
 
   private convertToEmotionData(faceEmotions: FaceEmotions): EmotionData {
-    // Calculate arousal and valence from basic emotions
-    const arousal = this.calculateArousal(faceEmotions);
-    const valence = this.calculateValence(faceEmotions);
+    // Calculate arousal and valence from basic emotions (returns [-1, 1] range)
+    const { arousal, valence } = this.calculateArousalValence(faceEmotions);
     
     // Calculate 98 affects based on arousal-valence model
     const affects = this.calculateAffects(arousal, valence);
