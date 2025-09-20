@@ -15,7 +15,8 @@ import {
   Square
 } from "lucide-react";
 import BilateralStimulation, { BilateralStimulationRef } from "./BilateralStimulation";
-import type { SessionParticipant, EMDRPhase } from '@/../../shared/types';
+import EmotionDisplay from "./emotion/EmotionDisplay";
+import type { SessionParticipant, EMDRPhase, EmotionData } from '@/../../shared/types';
 
 // Types are now imported from shared/types.ts
 
@@ -23,6 +24,9 @@ export default function EMDRSession() {
   const [sessionActive, setSessionActive] = useState(true);
   const [sessionTime, setSessionTime] = useState(0);
   const [phase, setPhase] = useState<EMDRPhase>('preparation');
+  const [currentEmotions, setCurrentEmotions] = useState<EmotionData | null>(null);
+  const [emotionHistory, setEmotionHistory] = useState<EmotionData[]>([]);
+  const emotionSaveIntervalRef = useRef<number | null>(null);
   
   // TODO: Integrate with real session data from backend/context
   // Participants should be loaded from session context or API
@@ -40,10 +44,83 @@ export default function EMDRSession() {
     }
   }, [sessionActive]);
 
+  // Save emotion snapshots every 5 seconds
+  useEffect(() => {
+    if (sessionActive && currentEmotions) {
+      // Clear previous interval if exists
+      if (emotionSaveIntervalRef.current) {
+        clearInterval(emotionSaveIntervalRef.current);
+      }
+      
+      // Set up new interval for saving emotions
+      emotionSaveIntervalRef.current = window.setInterval(() => {
+        if (currentEmotions) {
+          saveEmotionSnapshot(currentEmotions);
+        }
+      }, 5000); // Save every 5 seconds
+      
+      return () => {
+        if (emotionSaveIntervalRef.current) {
+          clearInterval(emotionSaveIntervalRef.current);
+        }
+      };
+    }
+  }, [sessionActive, currentEmotions]);
+
   // Handle BLS metrics updates
   const handleBLSMetricsUpdate = (metrics: any) => {
     // TODO: Send metrics to backend for analysis
     console.log('BLS Metrics:', metrics);
+  };
+
+  // Handle emotion updates from EmotionDisplay
+  const handleEmotionUpdate = (emotions: EmotionData) => {
+    setCurrentEmotions(emotions);
+    setEmotionHistory(prev => [...prev.slice(-100), emotions]); // Keep last 100 samples
+    
+    // Adaptive BLS control based on emotions
+    if (blsRef.current && emotions) {
+      // High arousal -> slower speed, calming colors
+      // Low valence -> supportive patterns
+      if (emotions.arousal > 0.7) {
+        blsRef.current.updateConfig({
+          speed: Math.max(1, 5 - Math.floor(emotions.arousal * 3)),
+          color: '#60a5fa' // Calming blue
+        });
+      } else if (emotions.valence < 0.3) {
+        blsRef.current.updateConfig({
+          speed: 4,
+          color: '#fbbf24' // Warm yellow for support
+        });
+      }
+    }
+  };
+
+  // Save emotion snapshot to database
+  const saveEmotionSnapshot = async (emotions: EmotionData) => {
+    try {
+      // TODO: Implement actual API call to save emotion data
+      console.log('Saving emotion snapshot:', {
+        timestamp: emotions.timestamp,
+        arousal: emotions.arousal,
+        valence: emotions.valence,
+        phase: phase,
+        sessionTime: sessionTime
+      });
+      
+      // Example API call:
+      // await fetch('/api/sessions/emotions', {
+      //   method: 'POST',
+      //   headers: { 'Content-Type': 'application/json' },
+      //   body: JSON.stringify({
+      //     sessionId: sessionId,
+      //     emotionData: emotions,
+      //     phase: phase
+      //   })
+      // });
+    } catch (error) {
+      console.error('Failed to save emotion snapshot:', error);
+    }
   };
 
   const formatTime = (seconds: number) => {
@@ -211,6 +288,15 @@ export default function EMDRSession() {
 
           {/* Session Sidebar */}
           <div className="space-y-6">
+            {/* Emotion Analysis */}
+            <EmotionDisplay
+              onEmotionUpdate={handleEmotionUpdate}
+              isActive={sessionActive}
+              showCircumplex={true}
+              showTopEmotions={true}
+              showBasicEmotions={false}
+            />
+            
             {/* Session Controls */}
             <Card>
               <CardHeader>
