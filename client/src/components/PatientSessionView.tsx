@@ -68,18 +68,18 @@ export default function PatientSessionView() {
   const [sessionDuration, setSessionDuration] = useState(0);
   const [currentInstruction, setCurrentInstruction] = useState('Ожидание подключения психолога...');
   
-  // Mock user data
+  // TODO: Get user and therapist data from authentication/session context
   const user = {
-    name: "Анна Петрова",
-    email: "anna.petrova@email.com",
+    name: "", // Will be loaded from context
+    email: "",
     role: 'patient' as const,
     avatar: ""
   };
   
-  // Mock therapist data
+  // TODO: Get therapist data from session/API
   const therapist = {
-    name: "Доктор Иванова",
-    status: "Онлайн",
+    name: "", // Will be loaded from session
+    status: "Ожидание",
     avatar: ""
   };
 
@@ -248,7 +248,7 @@ export default function PatientSessionView() {
             {/* Main therapist video */}
             <div className="text-center">
               <div className="w-32 h-32 bg-green-500 rounded-full mx-auto mb-6 flex items-center justify-center">
-                <span className="text-4xl font-bold">{therapist.name.charAt(0)}</span>
+                <span className="text-4xl font-bold">{therapist.name?.charAt(0) || '?'}</span>
               </div>
               <p className="text-2xl font-medium">{therapist.name}</p>
             </div>
@@ -259,7 +259,7 @@ export default function PatientSessionView() {
                 <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center text-white">
                   <div className="text-center">
                     <div className="w-12 h-12 bg-blue-500 rounded-full mx-auto mb-2 flex items-center justify-center">
-                      <span className="text-lg font-bold">{user.name.charAt(0)}</span>
+                      <span className="text-lg font-bold">{user.name?.charAt(0) || '?'}</span>
                     </div>
                     <p className="text-sm">{user.name}</p>
                   </div>

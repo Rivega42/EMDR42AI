@@ -100,21 +100,21 @@ export default function TherapistSessionView() {
   const [currentSet, setCurrentSet] = useState(1);
   const [totalSets, setTotalSets] = useState(0);
   
-  // Mock user data
+  // TODO: Get user data from authentication context
   const user = {
-    name: "Доктор Иванова",
-    email: "dr.ivanova@email.com",
+    name: "", // Will be loaded from auth context
+    email: "",
     role: 'therapist' as const,
     avatar: ""
   };
   
-  // Mock patient data
+  // TODO: Get patient data from session/API
   const patient = {
-    name: "Анна Петрова",
-    status: "Онлайн",
+    name: "", // Will be loaded from session
+    status: "Ожидание",
     avatar: "",
-    previousSessions: 5,
-    diagnosis: "ПТСР, тревожное расстройство"
+    previousSessions: 0,
+    diagnosis: "" // Will be loaded from patient data
   };
 
   const gameCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -297,7 +297,7 @@ export default function TherapistSessionView() {
             {/* Main patient video */}
             <div className="text-center">
               <div className="w-32 h-32 bg-blue-500 rounded-full mx-auto mb-6 flex items-center justify-center">
-                <span className="text-4xl font-bold">{patient.name.charAt(0)}</span>
+                <span className="text-4xl font-bold">{patient.name?.charAt(0) || '?'}</span>
               </div>
               <p className="text-2xl font-medium">{patient.name}</p>
               <p className="text-lg opacity-75">{patient.diagnosis}</p>
@@ -309,7 +309,7 @@ export default function TherapistSessionView() {
                 <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center text-white">
                   <div className="text-center">
                     <div className="w-12 h-12 bg-green-500 rounded-full mx-auto mb-2 flex items-center justify-center">
-                      <span className="text-lg font-bold">{user.name.charAt(0)}</span>
+                      <span className="text-lg font-bold">{user.name?.charAt(0) || '?'}</span>
                     </div>
                     <p className="text-sm">{user.name}</p>
                   </div>
