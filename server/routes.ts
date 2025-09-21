@@ -9,16 +9,9 @@ import { sessionMemoryRouter } from "./routes/sessionMemory";
 import { ProgressAnalyticsService } from "./services/progressAnalytics";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { 
-  generateDeterministicHash,
-  generateDeterministicFloat,
-  generateDeterministicInt,
-  generateDeterministicBoolean,
-  generateDeterministicArray,
-  generateDeterministicTimeSeries,
-  generateDeterministicCorrelation,
-  generateDeterministicRGB,
-  calculatePhaseShift,
-  generateDeterministicID
+  deterministicValue,
+  deterministicBoolean,
+  generateDeterministicId
 } from "../client/src/lib/deterministicUtils";
 import type { 
   EmotionData, 
@@ -263,15 +256,18 @@ function getEmotionQuadrant(arousal: number, valence: number): string {
 function generateNeuralNodes(snapshot: any): any[] {
   const regions = ['prefrontal', 'amygdala', 'hippocampus', 'insula', 'cingulate', 'thalamus', 'brainstem', 'cerebellum'];
   
-  return regions.map(region => ({
+  const patientId = snapshot.patientId || 'default_patient';
+  const sessionId = snapshot.sessionId || 'default_session';
+  
+  return regions.map((region, index) => ({
     id: region,
-    x: 200 + Math.random() * 400,
-    y: 150 + Math.random() * 300,
+    x: 200 + deterministicValue(patientId, sessionId, `node_${region}_x`, 0, 400),
+    y: 150 + deterministicValue(patientId, sessionId, `node_${region}_y`, 0, 300),
     region: region.charAt(0).toUpperCase() + region.slice(1),
-    activity: Math.max(0, Math.min(1, (snapshot.engagementLevel || 0.5) + (Math.random() - 0.5) * 0.4)),
+    activity: Math.max(0, Math.min(1, (snapshot.engagementLevel || 0.5) + (deterministicValue(patientId, sessionId, `node_${region}_activity`, -0.5, 0.5)))),
     connections: [],
-    size: 15 + Math.random() * 10,
-    color: `hsl(${Math.random() * 360}, 70%, 50%)`
+    size: 15 + deterministicValue(patientId, sessionId, `node_${region}_size`, 0, 10),
+    color: `hsl(${Math.floor(deterministicValue(patientId, sessionId, `node_${region}_hue`, 0, 360))}, 70%, 50%)`
   }));
 }
 
@@ -280,15 +276,19 @@ function generateNeuralConnections(snapshot: any): any[] {
   const regions = ['prefrontal', 'amygdala', 'hippocampus', 'insula', 'cingulate', 'thalamus'];
   const connections: any[] = [];
   
+  const patientId = snapshot.patientId || 'default_patient';
+  const sessionId = snapshot.sessionId || 'default_session';
+  
   for (let i = 0; i < regions.length; i++) {
     for (let j = i + 1; j < regions.length; j++) {
-      if (Math.random() > 0.6) {
+      const connectionSeed = `conn_${regions[i]}_${regions[j]}`;
+      if (deterministicBoolean(patientId, sessionId, connectionSeed, 0.4)) {
         connections.push({
           from: regions[i],
           to: regions[j],
-          strength: Math.random(),
-          type: Math.random() > 0.5 ? 'excitatory' : 'inhibitory',
-          active: Math.random() > 0.4
+          strength: deterministicValue(patientId, sessionId, `${connectionSeed}_strength`, 0, 1),
+          type: deterministicBoolean(patientId, sessionId, `${connectionSeed}_type`, 0.5) ? 'excitatory' : 'inhibitory',
+          active: deterministicBoolean(patientId, sessionId, `${connectionSeed}_active`, 0.6)
         });
       }
     }
@@ -302,11 +302,14 @@ function generateBrainwaveData(snapshots: any[]): any[] {
   const waveTypes = ['alpha', 'beta', 'theta', 'delta', 'gamma'];
   const waves: any[] = [];
   
+  const patientId = snapshots[0]?.patientId || 'default_patient';
+  const sessionId = snapshots[0]?.sessionId || 'default_session';
+  
   for (let i = 0; i < 50; i++) {
     waveTypes.forEach(type => {
       waves.push({
-        frequency: Math.random() * 50 + 1,
-        amplitude: Math.random(),
+        frequency: deterministicValue(patientId, sessionId, `wave_${type}_${i}_freq`, 1, 51),
+        amplitude: deterministicValue(patientId, sessionId, `wave_${type}_${i}_amp`, 0, 1),
         type,
         timestamp: new Date(Date.now() - (50 - i) * 1000)
       });
@@ -318,12 +321,15 @@ function generateBrainwaveData(snapshots: any[]): any[] {
 
 // Generate prediction data for a metric
 function generatePrediction(metric: string, snapshots: any[], timeHorizon: number): any {
-  const currentValue = metric === 'suds' ? 6 : metric === 'voc' ? 5 : Math.random() * 0.8 + 0.2;
+  const patientId = snapshots[0]?.patientId || 'default_patient';
+  const sessionId = snapshots[0]?.sessionId || 'default_session';
+  
+  const currentValue = metric === 'suds' ? 6 : metric === 'voc' ? 5 : deterministicValue(patientId, sessionId, `${metric}_current`, 0.2, 1.0);
   
   const predictedValues = [];
   for (let i = 1; i <= timeHorizon; i++) {
     const baseChange = metric === 'suds' ? -0.05 : metric === 'voc' ? 0.03 : 0.02;
-    const trend = baseChange * i + (Math.random() - 0.5) * 0.1;
+    const trend = baseChange * i + deterministicValue(patientId, sessionId, `${metric}_trend_${i}`, -0.05, 0.05);
     const value = Math.max(0, Math.min(metric === 'suds' ? 10 : metric === 'voc' ? 10 : 1, 
                                       currentValue + trend));
     
@@ -344,8 +350,8 @@ function generatePrediction(metric: string, snapshots: any[], timeHorizon: numbe
     predictedValues,
     trend: (metric === 'suds' ? 'improving' : 
             metric === 'voc' ? 'improving' : 
-            Math.random() > 0.3 ? 'improving' : 'stable'),
-    confidence: 0.7 + Math.random() * 0.25,
+            deterministicBoolean(patientId, sessionId, `${metric}_trend_positive`, 0.7) ? 'improving' : 'stable'),
+    confidence: 0.7 + deterministicValue(patientId, sessionId, `${metric}_confidence`, 0, 0.25),
     factors: ['Treatment consistency', 'Patient engagement', 'Session frequency', 'Emotional processing']
   };
 }
@@ -445,15 +451,8 @@ const VoiceStreamRequestSchema = z.object({
   action: z.enum(['start', 'stop', 'status'])
 });
 
-// Authentication middleware for AI therapist and memory endpoints
-function requireAuth(req: Request, res: Response, next: NextFunction) {
-  if (!req.session?.user) {
-    return res.status(401).json({ 
-      error: "Authentication required for protected endpoint access" 
-    });
-  }
-  next();
-}
+// Use the proper authentication middleware from replitAuth.ts
+const requireAuth = isAuthenticated;
 
 // RBAC middleware for role-based access control
 function requireRole(allowedRoles: string[]) {

@@ -11,6 +11,7 @@ import type {
   VoiceRecordingConfig,
   EmotionData 
 } from '@/../../shared/types';
+import { generateDeterministicId } from '@/lib/deterministicUtils';
 
 // === Voice Provider Interfaces ===
 
@@ -46,7 +47,7 @@ class AssemblyAIProvider implements VoiceProvider {
     let port = '';
     
     // Handle explicit port in URL
-    if (window.location.port && window.location.port !== '') {
+    if (window.location.port && window.location.port !== '' && window.location.port !== 'undefined') {
       port = `:${window.location.port}`;
     } else {
       // Handle different environments and default ports
@@ -91,7 +92,7 @@ class AssemblyAIProvider implements VoiceProvider {
   }
 
   async initialize(config: VoiceProviderConfig): Promise<void> {
-    this.sessionId = config.sessionId || `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    this.sessionId = config.sessionId || `session-${Date.now()}-${generateDeterministicId('voice_session', Date.now().toString(), 'session_id')}`;
     
     // Start provider stream on server
     try {
