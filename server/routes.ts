@@ -7,6 +7,19 @@ import jwt from "jsonwebtoken";
 import { backendAITherapist } from "./services/aiTherapist";
 import { sessionMemoryRouter } from "./routes/sessionMemory";
 import { ProgressAnalyticsService } from "./services/progressAnalytics";
+import { setupAuth, isAuthenticated } from "./replitAuth";
+import { 
+  generateDeterministicHash,
+  generateDeterministicFloat,
+  generateDeterministicInt,
+  generateDeterministicBoolean,
+  generateDeterministicArray,
+  generateDeterministicTimeSeries,
+  generateDeterministicCorrelation,
+  generateDeterministicRGB,
+  calculatePhaseShift,
+  generateDeterministicID
+} from "../client/src/lib/deterministicUtils";
 import type { 
   EmotionData, 
   BLSConfiguration, 
@@ -1068,7 +1081,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const patterns = await progressAnalytics.identifyPatterns(patientId);
       const trends = await progressAnalytics.analyzeTrends(patientId);
       
-      // Breakthrough prediction algorithm
+      // Breakthrough prediction algorithm - DETERMINISTIC FOR CLINICAL SAFETY
       const breakthroughProbability = Math.min(0.95, Math.max(0.1, 
         (trends.sudsProgress.trend > 0 ? 0.3 : 0) +
         (trends.vocProgress.trend > 0 ? 0.2 : 0) +

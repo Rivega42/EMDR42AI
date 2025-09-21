@@ -3,15 +3,32 @@ import { pgTable, text, varchar, integer, timestamp, jsonb, real, boolean, index
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// User table with extended fields for EMDR platform
+// Session storage table for Replit Auth - CRITICAL FOR AUTHENTICATION
+export const sessions = pgTable(
+  "sessions",
+  {
+    sid: varchar("sid").primaryKey(),
+    sess: jsonb("sess").notNull(),
+    expire: timestamp("expire").notNull(),
+  },
+  (table) => [index("IDX_session_expire").on(table.expire)],
+);
+
+// User table with Replit Auth support + EMDR platform fields
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
-  role: text("role").notNull().default('patient'), // 'patient', 'therapist', 'admin'
-  email: text("email"),
-  fullName: text("full_name"),
+  email: varchar("email").unique(),
+  firstName: varchar("first_name"),
+  lastName: varchar("last_name"),
+  profileImageUrl: varchar("profile_image_url"),
+  // EMDR-specific fields
+  role: text("role").notNull().default('patient'), // 'patient', 'therapist', 'admin', 'researcher'
+  username: text("username").unique(), // Optional username for display
+  specialization: text("specialization"), // For therapists
+  licenseNumber: text("license_number"), // For therapists  
+  clinicalLevel: text("clinical_level"), // 'trainee', 'licensed', 'supervisor'
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 });
 
 // EMDR Sessions table
@@ -400,6 +417,11 @@ export type MemoryInsight = typeof memoryInsights.$inferSelect;
 
 export type InsertEmotionalPatternAnalysis = z.infer<typeof insertEmotionalPatternAnalysisSchema>;
 export type EmotionalPatternAnalysis = typeof emotionalPatternAnalysis.$inferSelect;
+
+// Auth types for Replit authentication
+export type UpsertUser = typeof users.$inferInsert;
+export type InsertUser = typeof users.$inferInsert;
+export type User = typeof users.$inferSelect;
 export type BLSConfiguration = typeof blsConfigurations.$inferSelect;
 
 export type InsertSessionNote = z.infer<typeof insertSessionNoteSchema>;
