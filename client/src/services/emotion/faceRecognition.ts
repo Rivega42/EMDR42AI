@@ -394,7 +394,20 @@ export class FaceRecognitionService {
       basicEmotions: faceEmotions as any
     };
   }
+
+  /**
+   * Get current emotion data for external services
+   */
+  async getCurrentEmotionData(): Promise<EmotionData | null> {
+    if (!this.isProcessing || this.smoothingBuffer.length === 0) {
+      return null;
+    }
+    
+    // Return the latest smoothed emotion data
+    return this.smoothingBuffer[this.smoothingBuffer.length - 1];
+  }
 }
 
 // Singleton instance
 export const faceRecognition = new FaceRecognitionService();
+export const emotionService = faceRecognition; // Alias for backward compatibility

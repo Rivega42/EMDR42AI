@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { 
   Video, 
   VideoOff, 
@@ -12,11 +13,22 @@ import {
   Phone,
   Settings,
   Clock,
-  Square
+  Square,
+  Brain,
+  AlertTriangle,
+  Lightbulb,
+  CheckCircle
 } from "lucide-react";
 import BilateralStimulation, { BilateralStimulationRef } from "./BilateralStimulation";
 import EmotionDisplay from "./emotion/EmotionDisplay";
-import type { SessionParticipant, EMDRPhase, EmotionData } from '@/../../shared/types';
+import { AITherapist } from "./ai/AITherapist";
+import type { 
+  SessionParticipant, 
+  EMDRPhase, 
+  EmotionData,
+  PersonalizedRecommendation,
+  CrisisDetection
+} from '@/../../shared/types';
 
 // Types are now imported from shared/types.ts
 
@@ -28,6 +40,15 @@ export default function EMDRSession() {
   const [emotionHistory, setEmotionHistory] = useState<EmotionData[]>([]);
   const emotionSaveIntervalRef = useRef<number | null>(null);
   const lastSavedEmotionsRef = useRef<EmotionData | null>(null);
+  
+  // === Revolutionary AI Therapist State ===
+  const [aiTherapistActive, setAiTherapistActive] = useState(true);
+  const [currentRecommendations, setCurrentRecommendations] = useState<PersonalizedRecommendation[]>([]);
+  const [crisisAlert, setCrisisAlert] = useState<CrisisDetection | null>(null);
+  const [sessionId] = useState(() => `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+  const [patientId] = useState(() => `patient-${Date.now()}`); // TODO: Get from auth context
+  const [aiPhaseRecommendations, setAiPhaseRecommendations] = useState<string[]>([]);
+  const [autoPhaseTransition, setAutoPhaseTransition] = useState(true);
   
   // Adaptive BLS control with hysteresis
   const [blsState, setBlsState] = useState<'normal' | 'stressed' | 'low-engagement'>('normal');
@@ -204,6 +225,90 @@ export default function EMDRSession() {
     }
   };
 
+  // === Revolutionary AI Therapist Event Handlers ===
+
+  /**
+   * Handle AI therapist recommendations
+   */
+  const handleAIRecommendation = (recommendation: PersonalizedRecommendation) => {
+    setCurrentRecommendations(prev => {
+      // Add new recommendation and keep last 5
+      const updated = [recommendation, ...prev].slice(0, 5);
+      return updated;
+    });
+
+    // Apply BLS adjustments if recommended
+    if (recommendation.type === 'bls-adjustment' && blsRef.current) {
+      if (recommendation.message.includes('замедлить')) {
+        blsRef.current.updateConfig({ speed: 2, color: '#60a5fa' });
+      } else if (recommendation.message.includes('ускорить')) {
+        blsRef.current.updateConfig({ speed: 7, color: '#fbbf24' });
+      }
+    }
+
+    // Auto-remove recommendation after duration
+    if (recommendation.duration) {
+      setTimeout(() => {
+        setCurrentRecommendations(prev => 
+          prev.filter(rec => rec !== recommendation)
+        );
+      }, recommendation.duration * 1000);
+    }
+  };
+
+  /**
+   * Handle crisis detection from AI therapist
+   */
+  const handleCrisisDetection = (crisis: CrisisDetection) => {
+    setCrisisAlert(crisis);
+    
+    // Apply immediate crisis interventions
+    if (crisis.interventions.immediate.length > 0) {
+      console.log('Applying crisis interventions:', crisis.interventions.immediate);
+      
+      // Force calming BLS settings
+      if (blsRef.current) {
+        blsRef.current.updateConfig({
+          speed: 1, // Very slow
+          color: '#10b981', // Calming green
+          pattern: 'horizontal' // Simple pattern
+        });
+      }
+    }
+
+    // Auto-dismiss crisis alert after 30 seconds (but keep monitoring)
+    setTimeout(() => {
+      setCrisisAlert(null);
+    }, 30000);
+  };
+
+  /**
+   * Handle AI-recommended phase changes
+   */
+  const handleAIPhaseChange = (newPhase: EMDRPhase) => {
+    if (autoPhaseTransition) {
+      setPhase(newPhase);
+      setAiPhaseRecommendations(prev => [
+        ...prev, 
+        `AI рекомендует переход к фазе: ${getPhaseLabel(newPhase)}`
+      ].slice(-3)); // Keep last 3 recommendations
+    }
+  };
+
+  /**
+   * Dismiss current crisis alert
+   */
+  const dismissCrisisAlert = () => {
+    setCrisisAlert(null);
+  };
+
+  /**
+   * Clear current recommendations
+   */
+  const clearRecommendations = () => {
+    setCurrentRecommendations([]);
+  };
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -240,9 +345,54 @@ export default function EMDRSession() {
               <Badge variant="secondary" className="font-medium">
                 {getPhaseLabel(phase)}
               </Badge>
+              
+              {/* AI Therapist Status */}
+              {aiTherapistActive && (
+                <Badge variant="outline" className="font-medium flex items-center gap-1">
+                  <Brain className="w-3 h-3" />
+                  AI Терапевт активен
+                </Badge>
+              )}
+              
+              {/* AI Phase Recommendations */}
+              {aiPhaseRecommendations.length > 0 && (
+                <Badge variant="default" className="font-medium flex items-center gap-1">
+                  <Lightbulb className="w-3 h-3" />
+                  AI рекомендация
+                </Badge>
+              )}
             </div>
             
             <div className="flex items-center space-x-2">
+              {/* Crisis Alert */}
+              {crisisAlert && (
+                <Alert className="flex items-center p-2 border-red-500 bg-red-50 dark:bg-red-950">
+                  <AlertTriangle className="h-4 w-4 text-red-600" />
+                  <AlertDescription className="text-red-700 dark:text-red-200 text-sm">
+                    КРИЗИС: {crisisAlert.triggers.join(', ')}
+                  </AlertDescription>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={dismissCrisisAlert}
+                    className="ml-2 h-6 w-6 p-0"
+                  >
+                    ×
+                  </Button>
+                </Alert>
+              )}
+              
+              {/* AI Therapist Toggle */}
+              <Button 
+                variant={aiTherapistActive ? "default" : "outline"} 
+                size="sm" 
+                onClick={() => setAiTherapistActive(!aiTherapistActive)}
+                data-testid="button-toggle-ai-therapist"
+              >
+                <Brain className="w-4 h-4 mr-1" />
+                AI Терапевт
+              </Button>
+              
               <Button 
                 variant="outline" 
                 size="sm" 
@@ -378,6 +528,77 @@ export default function EMDRSession() {
               showTopEmotions={true}
               showBasicEmotions={false}
             />
+
+            {/* Current AI Recommendations */}
+            {currentRecommendations.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Lightbulb className="h-5 w-5 text-primary" />
+                      AI Рекомендации
+                    </div>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={clearRecommendations}
+                      data-testid="button-clear-recommendations"
+                    >
+                      <CheckCircle className="h-4 w-4" />
+                    </Button>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {currentRecommendations.map((rec, index) => (
+                    <Alert key={index} className={`border-${rec.priority === 'high' ? 'red' : 'blue'}-200`}>
+                      <AlertDescription className="text-sm">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <Badge 
+                              variant={rec.priority === 'high' ? 'destructive' : 'secondary'} 
+                              className="mb-1 text-xs"
+                            >
+                              {rec.type}
+                            </Badge>
+                            <p>{rec.message}</p>
+                            {rec.instructions && (
+                              <ul className="mt-2 text-xs opacity-75">
+                                {rec.instructions.map((instruction, i) => (
+                                  <li key={i}>• {instruction}</li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                          {rec.duration && (
+                            <Badge variant="outline" className="text-xs">
+                              {rec.duration}с
+                            </Badge>
+                          )}
+                        </div>
+                      </AlertDescription>
+                    </Alert>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+            
+            {/* Revolutionary AI Therapist */}
+            <AITherapist
+              sessionId={sessionId}
+              patientId={patientId}
+              currentPhase={phase}
+              emotionData={currentEmotions || {
+                timestamp: Date.now(),
+                arousal: 0.5,
+                valence: 0.5,
+                affects: {},
+                basicEmotions: {}
+              }}
+              onPhaseChange={handleAIPhaseChange}
+              onRecommendation={handleAIRecommendation}
+              onCrisis={handleCrisisDetection}
+              isActive={aiTherapistActive && sessionActive}
+            />
             
             {/* Session Controls */}
             <Card>
@@ -407,6 +628,34 @@ export default function EMDRSession() {
                       </Button>
                     ))}
                   </div>
+                </div>
+                
+                <Separator />
+                
+                {/* AI Auto Phase Transition */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">AI Функции</label>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Автопереходы фаз</span>
+                    <Button
+                      variant={autoPhaseTransition ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setAutoPhaseTransition(!autoPhaseTransition)}
+                      data-testid="button-toggle-auto-phase"
+                    >
+                      {autoPhaseTransition ? 'Вкл' : 'Выкл'}
+                    </Button>
+                  </div>
+                  
+                  {/* Display AI Phase Recommendations */}
+                  {aiPhaseRecommendations.length > 0 && (
+                    <div className="text-xs space-y-1">
+                      <p className="font-medium text-muted-foreground">Последние рекомендации AI:</p>
+                      {aiPhaseRecommendations.map((rec, index) => (
+                        <p key={index} className="text-muted-foreground">• {rec}</p>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 
                 <Separator />

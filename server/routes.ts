@@ -3,7 +3,15 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
 import { backendAITherapist } from "./services/aiTherapist";
-import type { EmotionData, BLSConfiguration } from "../shared/types";
+import type { 
+  EmotionData, 
+  BLSConfiguration, 
+  EMDRPhase, 
+  AIChatContext,
+  AITherapistMessage,
+  AISessionGuidance,
+  AIEmotionResponse 
+} from "../shared/types";
 
 // Zod schemas for validation
 const EmotionDataSchema = z.object({
@@ -57,8 +65,120 @@ const PredictPhaseRequestSchema = z.object({
   sudsLevel: z.number().min(0).max(10)
 });
 
+// === New AI Therapist Schemas ===
+
+// AI Chat Message Schema
+const AIChatMessageSchema = z.object({
+  message: z.string().min(1).max(1000),
+  context: z.object({
+    sessionId: z.string(),
+    patientProfile: z.object({
+      id: z.string(),
+      triggers: z.array(z.string()).default([]),
+      calmingTechniques: z.array(z.string()).default([])
+    }),
+    currentEmotionalState: EmotionDataSchema,
+    phaseContext: z.object({
+      currentPhase: z.enum(['preparation', 'assessment', 'desensitization', 'installation', 'body-scan', 'closure', 'reevaluation', 'integration']),
+      timeInPhase: z.number(),
+      phaseGoals: z.array(z.string()).default([]),
+      completionCriteria: z.array(z.string()).default([])
+    }),
+    sessionMetrics: z.object({
+      sudsLevels: z.array(z.number()).default([]),
+      vocLevels: z.array(z.number()).default([]),
+      stabilityTrend: z.number().default(0.5)
+    }).optional()
+  })
+});
+
+// Session Guidance Schema
+const SessionGuidanceSchema = z.object({
+  currentPhase: z.enum(['preparation', 'assessment', 'desensitization', 'installation', 'body-scan', 'closure', 'reevaluation', 'integration']),
+  emotionData: EmotionDataSchema,
+  sessionMetrics: z.object({
+    sudsLevels: z.array(z.number()).default([]),
+    vocLevels: z.array(z.number()).default([]),
+    stabilityTrend: z.number().default(0.5),
+    timeInSession: z.number().default(0),
+    phaseHistory: z.array(z.string()).default([])
+  }).optional().default({})
+});
+
+// Emotion Response Schema
+const EmotionResponseSchema = z.object({
+  emotionData: EmotionDataSchema,
+  currentPhase: z.enum(['preparation', 'assessment', 'desensitization', 'installation', 'body-scan', 'closure', 'reevaluation', 'integration']),
+  sessionContext: z.object({
+    sessionDuration: z.number().default(0),
+    recentEmotions: z.array(EmotionDataSchema).default([]),
+    interventionHistory: z.array(z.string()).default([])
+  }).optional().default({})
+});
+
+// Rate limiting store for AI endpoints
+const aiRateLimitStore = new Map<string, { count: number; resetTime: number }>();
+
+// Authentication middleware for AI therapist endpoints
+function requireAuth(req: any, res: any, next: any) {
+  if (!req.session?.user) {
+    return res.status(401).json({ 
+      error: "Authentication required for AI therapist access" 
+    });
+  }
+  next();
+}
+
+// Rate limiting middleware for AI endpoints (10 requests per minute)
+function aiRateLimit(req: any, res: any, next: any) {
+  const userId = req.session?.user?.id;
+  if (!userId) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+  
+  const now = Date.now();
+  const userLimit = aiRateLimitStore.get(userId);
+  
+  if (!userLimit || now > userLimit.resetTime) {
+    aiRateLimitStore.set(userId, { count: 1, resetTime: now + 60000 }); // 1 minute
+    return next();
+  }
+  
+  if (userLimit.count >= 10) {
+    return res.status(429).json({ 
+      error: "Rate limit exceeded. Maximum 10 AI requests per minute." 
+    });
+  }
+  
+  userLimit.count++;
+  next();
+}
+
+// Session ownership validation
+function validateSessionOwnership(req: any, res: any, next: any) {
+  const { sessionId } = req.body.context || req.body;
+  const userId = req.session?.user?.id;
+  
+  if (!sessionId) {
+    return res.status(400).json({ error: "Session ID required" });
+  }
+  
+  // Extract patient ID from session ID if it follows pattern "session-patientId-timestamp-rand"
+  const sessionParts = sessionId.split('-');
+  if (sessionParts.length >= 3) {
+    const sessionPatientId = sessionParts[1];
+    if (sessionPatientId !== userId) {
+      return res.status(403).json({ 
+        error: "Access denied: Session does not belong to authenticated user" 
+      });
+    }
+  }
+  
+  next();
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
-  // AI Therapist endpoints - secure backend-only processing
+  // AI Therapist endpoints - secure backend-only processing with authentication
   
   // Analyze emotions and generate therapeutic response
   app.post("/api/ai/analyze", async (req, res) => {
@@ -159,6 +279,96 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("Phase prediction error:", error);
         res.status(500).json({ 
           error: "Failed to predict next phase" 
+        });
+      }
+    }
+  });
+
+  // === Revolutionary AI Therapist Endpoints ===
+
+  // AI Therapist Chat Message - Direct communication with AI therapist
+  app.post("/api/ai-therapist/message", requireAuth, aiRateLimit, validateSessionOwnership, async (req, res) => {
+    try {
+      const validatedData = AIChatMessageSchema.parse(req.body);
+      
+      const aiMessage = await backendAITherapist.handleChatMessage(
+        validatedData.message,
+        validatedData.context
+      );
+      
+      res.json(aiMessage);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ 
+          error: "Validation error", 
+          details: error.errors.map(err => ({
+            path: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      } else {
+        console.error("AI therapist chat error:", error);
+        res.status(500).json({ 
+          error: "Failed to process chat message" 
+        });
+      }
+    }
+  });
+
+  // AI Therapist Session Guidance - Get phase-specific guidance  
+  app.post("/api/ai-therapist/session-guidance", requireAuth, aiRateLimit, async (req, res) => {
+    try {
+      const validatedData = SessionGuidanceSchema.parse(req.body);
+      
+      const sessionGuidance = await backendAITherapist.getSessionGuidance(
+        validatedData.currentPhase,
+        validatedData.emotionData,
+        validatedData.sessionMetrics
+      );
+      
+      res.json(sessionGuidance);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ 
+          error: "Validation error", 
+          details: error.errors.map(err => ({
+            path: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      } else {
+        console.error("Session guidance error:", error);
+        res.status(500).json({ 
+          error: "Failed to get session guidance" 
+        });
+      }
+    }
+  });
+
+  // AI Therapist Emotion Response - Real-time emotion analysis and intervention
+  app.post("/api/ai-therapist/emotion-response", requireAuth, aiRateLimit, validateSessionOwnership, async (req, res) => {
+    try {
+      const validatedData = EmotionResponseSchema.parse(req.body);
+      
+      const emotionResponse = await backendAITherapist.processEmotionResponse(
+        validatedData.emotionData,
+        validatedData.currentPhase
+      );
+      
+      res.json(emotionResponse);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ 
+          error: "Validation error", 
+          details: error.errors.map(err => ({
+            path: err.path.join('.'),
+            message: err.message
+          }))
+        });
+      } else {
+        console.error("Emotion response error:", error);
+        res.status(500).json({ 
+          error: "Failed to process emotion response" 
         });
       }
     }
