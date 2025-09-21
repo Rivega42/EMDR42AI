@@ -1,12 +1,16 @@
 /**
- * BilateralStimulation Component
- * Reusable component for EMDR bilateral stimulation
+ * Revolutionary 3D BilateralStimulation Component
+ * Advanced EMDR bilateral stimulation with 3D patterns, adaptive AI, and therapeutic audio
+ * Maintains full backward compatibility with legacy 2D system
  */
 
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   Play,
   Pause,
@@ -20,9 +24,29 @@ import {
   Star,
   Zap,
   Eye,
-  Settings
+  Settings,
+  Cpu,
+  Headphones,
+  Vibrate,
+  Palette,
+  Gauge,
+  Brain
 } from "lucide-react";
-import type { BLSConfiguration, EmotionData } from '@/../../shared/types';
+import type { 
+  BLSConfiguration, 
+  EmotionData, 
+  BLSPattern,
+  DeviceCapabilities,
+  EMDRPhase 
+} from '@/../../shared/types';
+
+// Revolutionary 3D BLS System Imports
+import { deviceCapabilities } from '@/services/bls/deviceCapabilities';
+import { AudioEngine } from '@/services/bls/audioEngine';
+import { HapticsEngine } from '@/services/bls/hapticsEngine';
+import { Renderer3D, Pattern3DPosition } from '@/services/bls/renderer3D';
+import { AdaptiveController } from '@/services/bls/adaptiveController';
+import { TransitionManager } from '@/services/bls/transitionManager';
 
 export interface BilateralStimulationProps {
   onSessionComplete?: () => void;
@@ -67,14 +91,67 @@ const BilateralStimulation = forwardRef<BilateralStimulationRef, BilateralStimul
     const [ballDirection, setBallDirection] = useState(1);
     const [showSettings, setShowSettings] = useState(false);
     
-    // BLS Configuration
+    // Revolutionary 3D BLS Configuration with backward compatibility
     const [config, setConfig] = useState<BLSConfiguration>({
+      // Core settings (backward compatible)
       speed: initialConfig?.speed || 5,
       pattern: initialConfig?.pattern || 'horizontal',
       color: initialConfig?.color || '#3b82f6',
       size: initialConfig?.size || 20,
-      soundEnabled: initialConfig?.soundEnabled ?? true,
-      adaptiveMode: initialConfig?.adaptiveMode ?? adaptiveMode
+      soundEnabled: initialConfig?.soundEnabled ?? true, // Legacy compatibility
+      adaptiveMode: initialConfig?.adaptiveMode ?? adaptiveMode,
+      
+      // Revolutionary 3D Systems
+      audio: {
+        enabled: initialConfig?.soundEnabled ?? true,
+        audioType: 'binaural-beats',
+        binauralFrequency: 10,
+        binauralType: 'alpha',
+        spatialAudio: true,
+        panIntensity: 0.6,
+        volume: 0.5,
+        reverbEnabled: false,
+        filterEnabled: false
+      },
+      haptics: {
+        enabled: false,
+        pattern: 'pulse',
+        intensity: 0.5,
+        syncWithMovement: true,
+        syncWithAudio: true,
+        duration: 150,
+        interval: 300
+      },
+      rendering3D: {
+        enabled: true, // Will fallback based on device capabilities
+        antialias: true,
+        shadows: false,
+        lighting: 'therapeutic',
+        cameraType: 'perspective',
+        fieldOfView: 75,
+        cameraDistance: 8,
+        bloomEffect: true,
+        blurBackground: false,
+        particleEffects: false
+      },
+      transitions: {
+        enabled: true,
+        duration: 2000,
+        easing: 'therapeutic',
+        morphing: true,
+        crossfade: true
+      },
+      
+      // Adaptive Intelligence
+      emotionMapping: true,
+      hysteresisEnabled: true,
+      
+      // Therapeutic Settings
+      therapeuticMode: 'standard',
+      sessionPhase: 'preparation',
+      
+      // Additional properties for enhanced config
+      secondaryColor: undefined
     });
     
     // Metrics tracking
@@ -86,40 +163,191 @@ const BilateralStimulation = forwardRef<BilateralStimulationRef, BilateralStimul
       attentionScore: 1
     });
     
-    // Refs
+    // Revolutionary 3D System State
+    const [deviceCaps, setDeviceCaps] = useState<DeviceCapabilities | null>(null);
+    const [is3DMode, setIs3DMode] = useState(true);
+    const [systemStatus, setSystemStatus] = useState<'initializing' | 'ready' | 'fallback' | 'error'>('initializing');
+    const [adaptiveRecommendations, setAdaptiveRecommendations] = useState<string[]>([]);
+    const [currentPosition, setCurrentPosition] = useState<Pattern3DPosition | null>(null);
+    
+    // Refs for 3D Systems
+    const containerRef = useRef<HTMLDivElement>(null);
+    const canvas3DRef = useRef<HTMLDivElement>(null);
+    const renderer3DRef = useRef<Renderer3D | null>(null);
+    const audioEngineRef = useRef<AudioEngine | null>(null);
+    const hapticsEngineRef = useRef<HapticsEngine | null>(null);
+    const adaptiveControllerRef = useRef<AdaptiveController | null>(null);
+    const transitionManagerRef = useRef<TransitionManager | null>(null);
+    
+    // Legacy 2D Animation Refs (for fallback)
     const animationRef = useRef<number>();
     const startTimeRef = useRef<number>(0);
-    const containerRef = useRef<HTMLDivElement>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const oscillatorRef = useRef<OscillatorNode | null>(null);
     
-    // Expose methods to parent component
+    // Initialize Revolutionary 3D Systems
+    useEffect(() => {
+      initializeRevolutionary3DSystems();
+      return () => {
+        cleanup3DSystems();
+      };
+    }, []);
+    
+    // Revolutionary 3D System Initialization
+    const initializeRevolutionary3DSystems = async () => {
+      try {
+        setSystemStatus('initializing');
+        
+        // 1. Detect device capabilities
+        const caps = await deviceCapabilities.detect();
+        setDeviceCaps(caps);
+        
+        // 2. Determine if 3D mode is viable
+        const use3D = caps.webgl && config.rendering3D.enabled && deviceCapabilities.supportsAdvanced3D();
+        setIs3DMode(use3D);
+        
+        if (use3D && canvas3DRef.current) {
+          // 3. Initialize 3D Renderer
+          renderer3DRef.current = new Renderer3D(canvas3DRef.current, config.rendering3D);
+          renderer3DRef.current.setCallbacks({
+            onDirectionChange: handleDirectionChange,
+            onPatternComplete: handlePatternComplete,
+            onPositionUpdate: handlePositionUpdate
+          });
+        }
+        
+        // 4. Initialize Advanced Audio Engine
+        if (caps.webaudio) {
+          audioEngineRef.current = new AudioEngine();
+          const audioInitialized = await audioEngineRef.current.initialize();
+          if (!audioInitialized) {
+            console.warn('Advanced audio initialization failed, using fallback');
+          }
+        }
+        
+        // 5. Initialize Haptics Engine
+        if (caps.vibration) {
+          hapticsEngineRef.current = new HapticsEngine();
+          hapticsEngineRef.current.initialize();
+        }
+        
+        // 6. Initialize Adaptive Controller with 98 emotional states
+        adaptiveControllerRef.current = new AdaptiveController(config);
+        
+        // 7. Initialize Transition Manager
+        transitionManagerRef.current = new TransitionManager();
+        if (audioEngineRef.current) {
+          transitionManagerRef.current.setAudioEngine(audioEngineRef.current);
+        }
+        transitionManagerRef.current.setCallbacks({
+          onTransitionComplete: handleTransitionComplete
+        });
+        
+        setSystemStatus('ready');
+        console.log('🚀 Revolutionary 3D BLS System initialized successfully!');
+        console.log('Features:', {
+          '3D Rendering': use3D,
+          'Advanced Audio': !!audioEngineRef.current,
+          'Haptic Feedback': !!hapticsEngineRef.current,
+          'AI Adaptation': !!adaptiveControllerRef.current,
+          'Smooth Transitions': !!transitionManagerRef.current
+        });
+        
+      } catch (error) {
+        console.error('Failed to initialize 3D BLS system:', error);
+        setSystemStatus('fallback');
+        setIs3DMode(false);
+      }
+    };
+    
+    // Cleanup 3D Systems
+    const cleanup3DSystems = () => {
+      renderer3DRef.current?.dispose();
+      audioEngineRef.current?.dispose();
+      hapticsEngineRef.current?.dispose();
+      transitionManagerRef.current?.dispose();
+    };
+    
+    // Expose methods to parent component (Enhanced API)
     useImperativeHandle(ref, () => ({
       start: () => startBLS(),
       pause: () => pauseBLS(),
       reset: () => resetBLS(),
       updateConfig: (newConfig: Partial<BLSConfiguration>) => {
-        setConfig(prev => ({ ...prev, ...newConfig }));
+        updateConfigurationWithTransition(newConfig);
       },
-      getMetrics: () => metrics
+      getMetrics: () => metrics,
+      
+      // Revolutionary 3D API Extensions
+      get3DCapabilities: () => deviceCaps,
+      toggleMode: () => setIs3DMode(!is3DMode),
+      getAdaptiveRecommendations: () => adaptiveRecommendations,
+      forceAdaptation: (emotionData: EmotionData) => processAdaptiveResponse(emotionData),
+      getCurrentPosition: () => currentPosition
     }));
     
-    // Start BLS animation
-    const startBLS = () => {
+    // Revolutionary Start BLS - 3D + 2D Fallback
+    const startBLS = async () => {
       if (isActive) return;
       
       setIsActive(true);
       startTimeRef.current = Date.now();
       
-      if (config.soundEnabled) {
-        initAudio();
+      try {
+        if (is3DMode && renderer3DRef.current) {
+          // Start 3D Animation
+          renderer3DRef.current.start(config.pattern, config.speed);
+          
+          // Start Advanced Audio
+          if (audioEngineRef.current && config.audio.enabled) {
+            await audioEngineRef.current.startAudio(config.audio);
+          }
+          
+          // Start Haptics
+          if (hapticsEngineRef.current && config.haptics.enabled) {
+            hapticsEngineRef.current.start(config.haptics);
+          }
+        } else {
+          // Fallback to 2D animation
+          start2DFallback();
+        }
+        
+        console.log(`🎯 BLS Started in ${is3DMode ? '3D' : '2D fallback'} mode`);
+      } catch (error) {
+        console.error('Failed to start BLS:', error);
+        // Fallback to 2D if 3D fails
+        setIs3DMode(false);
+        start2DFallback();
       }
     };
     
-    // Pause BLS
+    // 2D Fallback Animation (Legacy)
+    const start2DFallback = () => {
+      if (config.soundEnabled || config.audio.enabled) {
+        initLegacyAudio();
+      }
+      // Start legacy 2D animation loop
+      animate2DFallback();
+    };
+    
+    // Revolutionary Pause BLS - All Systems
     const pauseBLS = () => {
       setIsActive(false);
       
+      // Stop 3D Systems
+      if (renderer3DRef.current) {
+        renderer3DRef.current.stop();
+      }
+      
+      if (audioEngineRef.current) {
+        audioEngineRef.current.stopAudio();
+      }
+      
+      if (hapticsEngineRef.current) {
+        hapticsEngineRef.current.stop();
+      }
+      
+      // Stop legacy audio
       if (oscillatorRef.current) {
         oscillatorRef.current.stop();
         oscillatorRef.current = null;
@@ -133,30 +361,199 @@ const BilateralStimulation = forwardRef<BilateralStimulationRef, BilateralStimul
           totalDuration: prev.totalDuration + duration
         }));
       }
+      
+      console.log('⏸️ BLS Paused');
     };
     
-    // Reset BLS
+    // Revolutionary Reset BLS - All Systems
     const resetBLS = () => {
       setIsActive(false);
       setBallPosition(getInitialPosition());
       setBallDirection(1);
       
+      // Reset 3D Systems
+      if (renderer3DRef.current) {
+        renderer3DRef.current.stop();
+      }
+      
+      if (audioEngineRef.current) {
+        audioEngineRef.current.stopAudio();
+      }
+      
+      if (hapticsEngineRef.current) {
+        hapticsEngineRef.current.stop();
+      }
+      
+      if (adaptiveControllerRef.current) {
+        adaptiveControllerRef.current.reset();
+      }
+      
+      // Reset legacy systems
       if (oscillatorRef.current) {
         oscillatorRef.current.stop();
         oscillatorRef.current = null;
       }
+      
+      // Reset metrics
+      setMetrics({
+        cyclesCompleted: 0,
+        totalDuration: 0,
+        averageSpeed: config.speed,
+        patternChanges: 0,
+        attentionScore: 1
+      });
+      
+      setAdaptiveRecommendations([]);
+      setCurrentPosition(null);
+      
+      console.log('🔄 BLS Reset');
     };
     
-    // Initialize audio context for sound effects
-    const initAudio = () => {
+    // Revolutionary Adaptive Processing - 98 Emotional States
+    const processAdaptiveResponse = async (emotionData: EmotionData) => {
+      if (!adaptiveControllerRef.current || !emotionData) return;
+      
+      try {
+        // Get adaptive recommendations
+        const adaptiveResult = adaptiveControllerRef.current.adaptConfiguration(
+          emotionData, 
+          config.sessionPhase, 
+          config
+        );
+        
+        if (adaptiveResult.changed) {
+          console.log('🤖 AI Adaptation:', adaptiveResult.reasoning);
+          
+          // Apply smooth transition if enabled
+          if (config.transitions.enabled && transitionManagerRef.current) {
+            await transitionManagerRef.current.startTransition(
+              config, 
+              adaptiveResult.config, 
+              config.transitions
+            );
+          }
+          
+          // Update configuration
+          setConfig(adaptiveResult.config);
+          
+          // Update 3D systems
+          if (renderer3DRef.current && isActive) {
+            renderer3DRef.current.updatePattern(adaptiveResult.config.pattern);
+            renderer3DRef.current.updateSpeed(adaptiveResult.config.speed);
+          }
+        }
+        
+        // Get therapeutic recommendations
+        const recommendations = adaptiveControllerRef.current.getTherapeuticRecommendations(
+          emotionData, 
+          config.sessionPhase
+        );
+        setAdaptiveRecommendations(recommendations);
+        
+        // Crisis detection
+        const crisisDetection = adaptiveControllerRef.current.detectCrisisState(emotionData);
+        if (crisisDetection.isCrisis) {
+          console.warn('⚠️ Crisis detected:', crisisDetection.severity);
+          // Immediate intervention
+          pauseBLS();
+        }
+        
+      } catch (error) {
+        console.error('Adaptive processing failed:', error);
+      }
+    };
+    
+    // Process emotion data when received
+    useEffect(() => {
+      if (emotionData && config.adaptiveMode) {
+        processAdaptiveResponse(emotionData);
+      }
+    }, [emotionData, config.adaptiveMode]);
+    
+    // Revolutionary 3D Event Handlers
+    const handleDirectionChange = (direction: number) => {
+      setBallDirection(direction);
+      
+      // Update metrics
+      setMetrics(prev => ({
+        ...prev,
+        cyclesCompleted: prev.cyclesCompleted + (direction === 1 ? 0 : 0.5)
+      }));
+      
+      // Trigger haptic feedback
+      if (hapticsEngineRef.current) {
+        hapticsEngineRef.current.triggerDirectionChange();
+      }
+      
+      // Legacy sound for fallback
+      playLegacySound();
+    };
+    
+    const handlePatternComplete = () => {
+      setMetrics(prev => ({
+        ...prev,
+        cyclesCompleted: prev.cyclesCompleted + 1
+      }));
+      
+      if (onSessionComplete) {
+        onSessionComplete();
+      }
+    };
+    
+    const handlePositionUpdate = (position: Pattern3DPosition) => {
+      setCurrentPosition(position);
+      
+      // Update spatial audio
+      if (audioEngineRef.current && config.audio.spatialAudio) {
+        audioEngineRef.current.updateSpatialPosition({
+          x: position.position.x,
+          y: position.position.y,
+          z: position.position.z
+        });
+      }
+      
+      // Update haptic feedback based on movement
+      if (hapticsEngineRef.current && config.haptics.syncWithMovement) {
+        hapticsEngineRef.current.triggerMovementSync({
+          x: position.position.x,
+          y: position.position.y,
+          z: position.position.z
+        });
+      }
+    };
+    
+    const handleTransitionComplete = (finalConfig: BLSConfiguration) => {
+      console.log('✨ Transition completed to new configuration');
+      setConfig(finalConfig);
+    };
+    
+    // Enhanced Configuration Update with Transitions
+    const updateConfigurationWithTransition = async (newConfig: Partial<BLSConfiguration>) => {
+      if (config.transitions.enabled && transitionManagerRef.current) {
+        const transitionConfig = transitionManagerRef.current.createPatternTransition(
+          config.pattern,
+          newConfig.pattern || config.pattern
+        );
+        
+        await transitionManagerRef.current.startTransition(
+          config,
+          { ...config, ...newConfig },
+          transitionConfig
+        );
+      } else {
+        setConfig(prev => ({ ...prev, ...newConfig }));
+      }
+    };
+    
+    // Legacy Audio Support (for fallback)
+    const initLegacyAudio = () => {
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
     };
     
-    // Play sound on direction change
-    const playSound = () => {
-      if (!config.soundEnabled || !audioContextRef.current) return;
+    const playLegacySound = () => {
+      if (!config.audio.enabled || !audioContextRef.current) return;
       
       const oscillator = audioContextRef.current.createOscillator();
       const gainNode = audioContextRef.current.createGain();
