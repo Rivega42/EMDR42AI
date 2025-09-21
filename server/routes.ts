@@ -5,6 +5,7 @@ import { storage } from "./storage";
 import { z } from "zod";
 import jwt from "jsonwebtoken";
 import { backendAITherapist } from "./services/aiTherapist";
+import { sessionMemoryRouter } from "./routes/sessionMemory";
 import type { 
   EmotionData, 
   BLSConfiguration, 

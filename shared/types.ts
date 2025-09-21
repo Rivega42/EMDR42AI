@@ -572,17 +572,30 @@ export interface AIChatContext {
   };
 }
 
-// Enhanced AI Therapist Response
+// Enhanced AI Therapist Response with Memory Integration
 export interface EnhancedAITherapistResponse extends AITherapistResponse {
   chatMessage?: AITherapistMessage;
   sessionGuidance?: AISessionGuidance;
   emotionResponse?: AIEmotionResponse;
   crisisDetection?: CrisisDetection;
   personalizedRecommendations: PersonalizedRecommendation[];
+  memoryBasedRecommendations?: MemoryBasedRecommendation[];
   nextPhaseReadiness: {
     isReady: boolean;
     confidence: number;
     reasoning: string;
+  };
+  memoryInsights?: {
+    patterns: EmotionalPattern[];
+    breakthroughs: BreakthroughMoment[];
+    riskFactors: string[];
+    historicalContext: string[];
+  };
+  progressUpdate?: {
+    metrics: Partial<ProgressMetrics>;
+    improvementAreas: string[];
+    concernAreas: string[];
+    predictions: string[];
   };
 }
 
@@ -603,5 +616,193 @@ export interface EMDRProtocol {
     emotionalThresholds: Record<string, number>;
     phaseTransitionRules: Record<EMDRPhase, string[]>;
     crisisProtocols: Record<string, string[]>;
+  };
+}
+
+// === IMPORTANT: Using shared/schema.ts as SINGLE SOURCE OF TRUTH ===
+// All database-related types are now imported from shared/schema.ts
+// This fixes the critical TYPE/MODEL DIVERGENCE issue
+
+// Progress Metrics Helper Types (for complex calculations)
+export interface ProgressMetricData {
+  initial: number;
+  final: number;
+  change: number;
+  trend: number; // -1 to 1, negative = worsening, positive = improving
+  variance: number;
+  stability: number;
+}
+
+// === IMPORT DATABASE TYPES FROM SINGLE SOURCE OF TRUTH ===
+// Import all database-related types from shared/schema.ts to fix TYPE/MODEL DIVERGENCE
+export type { 
+  SessionMemorySnapshot, 
+  ProgressMetric, 
+  SessionComparison, 
+  BreakthroughMoment, 
+  MemoryInsight, 
+  EmotionalPatternAnalysis as EmotionalPattern,
+  // Insert types
+  InsertSessionMemorySnapshot,
+  InsertProgressMetric,
+  InsertSessionComparison,
+  InsertBreakthroughMoment,
+  InsertMemoryInsight,
+  InsertEmotionalPatternAnalysis
+} from './schema';
+
+// === SESSION MEMORY SERVICE TYPES ===
+
+// Session Memory Configuration
+export interface SessionMemoryConfig {
+  enableAutoSnapshots: boolean;
+  snapshotFrequency: number; // seconds
+  enableBreakthroughDetection: boolean;
+  enablePatternRecognition: boolean;
+  enablePredictiveAnalytics: boolean;
+  retentionPeriod: number; // days
+  compressionEnabled: boolean;
+  encryptionEnabled: boolean;
+}
+
+// Progress Analytics Configuration
+export interface ProgressAnalyticsConfig {
+  calculateRealtime: boolean;
+  aggregationIntervals: ('session' | 'daily' | 'weekly' | 'monthly')[];
+  enableTrendAnalysis: boolean;
+  enableAnomalyDetection: boolean;
+  confidenceThreshold: number;
+  enablePredictions: boolean;
+  predictionHorizon: number; // days
+  enableInsightGeneration: boolean;
+}
+
+// Session Memory API Request/Response Types
+export interface SaveSessionMemoryRequest {
+  sessionId: string;
+  patientId: string;
+  snapshotType: string;
+  emotionalSnapshot: EmotionData;
+  phaseContext: EMDRPhase;
+  metadata?: {
+    sudsLevel?: number;
+    vocLevel?: number;
+    blsConfig?: any;
+    triggerEvents?: string[];
+    interventions?: string[];
+  };
+}
+
+export interface SessionHistoryRequest {
+  patientId: string;
+  timeRange?: {
+    start: Date;
+    end: Date;
+  };
+  sessionIds?: string[];
+  includeSnapshots?: boolean;
+  includeMetrics?: boolean;
+  includeComparisons?: boolean;
+  includeInsights?: boolean;
+}
+
+export interface SessionHistoryResponse {
+  sessions: Session[];
+  snapshots?: SessionMemorySnapshot[];
+  metrics?: ProgressMetrics[];
+  comparisons?: SessionComparisonResult[];
+  insights?: MemoryInsight[];
+  patterns?: EmotionalPattern[];
+  breakthroughs?: BreakthroughMoment[];
+  totalSessions: number;
+  timeRange: {
+    start: Date;
+    end: Date;
+  };
+}
+
+export interface CompareSessionsRequest {
+  patientId: string;
+  baselineSessionId: string;
+  compareSessionId: string;
+  comparisonType?: string;
+  includeAIAnalysis?: boolean;
+}
+
+export interface CompareSessionsResponse {
+  comparison: SessionComparisonResult;
+  recommendations: PersonalizedRecommendation[];
+  insights: MemoryInsight[];
+  trends: {
+    shortTerm: string[];
+    longTerm: string[];
+  };
+}
+
+export interface GenerateProgressReportRequest {
+  patientId: string;
+  timeScope: 'session' | 'week' | 'month' | 'quarter' | 'all';
+  includeVisualizations?: boolean;
+  includeRecommendations?: boolean;
+  includeRiskAssessment?: boolean;
+}
+
+export interface ProgressReportResponse {
+  metrics: ProgressMetrics;
+  visualizations?: {
+    charts: any[];
+    heatmaps: any[];
+    timelines: any[];
+  };
+  insights: MemoryInsight[];
+  recommendations: PersonalizedRecommendation[];
+  riskAssessment?: {
+    regressionRisk: number;
+    crisisRisk: number;
+    dropoutRisk: number;
+    factors: string[];
+  };
+  summary: {
+    overallProgress: number;
+    keyAchievements: string[];
+    concernAreas: string[];
+    nextSteps: string[];
+  };
+}
+
+// === LIVE MEMORY INTEGRATION TYPES ===
+
+// For real-time memory updates during sessions
+export interface LiveMemoryUpdate {
+  sessionId: string;
+  patientId: string;
+  timestamp: Date;
+  updateType: 'emotion_change' | 'breakthrough_detected' | 'pattern_matched' | 'risk_alert';
+  data: any;
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  requiresAction: boolean;
+  aiRecommendations?: string[];
+}
+
+// Memory-enhanced AI context
+export interface MemoryEnhancedAIContext extends AIChatContext {
+  historicalPatterns: EmotionalPattern[];
+  recentBreakthroughs: BreakthroughMoment[];
+  progressTrends: ProgressMetrics;
+  riskFactors: string[];
+  effectiveInterventions: Record<string, number>;
+  memoryInsights: MemoryInsight[];
+}
+
+// Enhanced therapy recommendations with memory context
+export interface MemoryBasedRecommendation extends PersonalizedRecommendation {
+  basedOnPattern?: string;
+  historicalEffectiveness?: number;
+  previouslySuccessful?: boolean;
+  adaptedFromSession?: string;
+  memoryContext: {
+    similarSituations: string[];
+    effectiveInterventions: string[];
+    patientPreferences: string[];
   };
 }
