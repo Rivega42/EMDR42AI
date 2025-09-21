@@ -42,18 +42,34 @@ class AssemblyAIProvider implements VoiceProvider {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.hostname;
     
-    // Robust port detection - handle all cases including Replit environment
+    // FIXED: Robust port detection - handle undefined port issues
     let port = '';
-    if (window.location.port) {
+    
+    // Handle explicit port in URL
+    if (window.location.port && window.location.port !== '') {
       port = `:${window.location.port}`;
     } else {
-      // Default ports for HTTPS/HTTP if not specified
-      const defaultPort = window.location.protocol === 'https:' ? '' : ':5000';
-      port = defaultPort;
+      // Handle different environments and default ports
+      if (window.location.protocol === 'https:') {
+        // HTTPS - check if we're in development (localhost) or production
+        if (host === 'localhost' || host === '127.0.0.1') {
+          port = ':5000'; // Development HTTPS usually runs on :5000
+        } else {
+          port = ''; // Production HTTPS uses default port 443
+        }
+      } else {
+        // HTTP - always specify port to avoid undefined issues
+        port = ':5000'; // Development HTTP port
+      }
+    }
+    
+    // Special handling for Replit environment
+    if (host.includes('.repl.co') || host.includes('.replit.dev')) {
+      port = ''; // Replit handles ports automatically
     }
     
     const wsUrl = `${protocol}//${host}${port}/voice-stream`;
-    console.log(`🔗 Generated WebSocket URL: ${wsUrl}`);
+    console.log(`🔗 Generated WebSocket URL: ${wsUrl} (protocol: ${protocol}, host: ${host}, port: ${port})`);
     return wsUrl;
   }
 

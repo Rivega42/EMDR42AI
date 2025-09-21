@@ -245,14 +245,38 @@ const VoiceStreamRequestSchema = z.object({
   action: z.enum(['start', 'stop', 'status'])
 });
 
-// Authentication middleware for AI therapist endpoints
+// Authentication middleware for AI therapist and memory endpoints
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.user) {
     return res.status(401).json({ 
-      error: "Authentication required for AI therapist access" 
+      error: "Authentication required for protected endpoint access" 
     });
   }
   next();
+}
+
+// SECURITY: PII Sanitization middleware to remove sensitive data from logs
+function sanitizePII(data: any): any {
+  if (!data || typeof data !== 'object') return data;
+  
+  const sanitized = { ...data };
+  
+  // Remove sensitive fields
+  const sensitiveFields = ['password', 'token', 'email', 'fullName', 'personalData', 'medicalHistory'];
+  sensitiveFields.forEach(field => {
+    if (sanitized[field]) {
+      sanitized[field] = '[REDACTED]';
+    }
+  });
+  
+  // Sanitize nested objects
+  Object.keys(sanitized).forEach(key => {
+    if (typeof sanitized[key] === 'object' && sanitized[key] !== null) {
+      sanitized[key] = sanitizePII(sanitized[key]);
+    }
+  });
+  
+  return sanitized;
 }
 
 // Rate limiting middleware for AI endpoints (10 requests per minute)
@@ -1196,21 +1220,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }, 30000);
 
   // JWT Token generation endpoint for session authentication
-  app.post("/api/auth/generate-token", (req, res) => {
+  // SECURITY: Protected with authentication - only authenticated users can generate tokens
+  app.post("/api/auth/generate-token", requireAuth, (req, res) => {
     const { sessionId, userId } = req.body;
     
     if (!sessionId) {
       return res.status(400).json({ error: "Session ID required" });
     }
     
-    const token = generateSessionToken(sessionId, userId);
+    // SECURITY: Verify session belongs to authenticated user
+    const authenticatedUserId = req.session?.user?.id;
+    if (userId && userId !== authenticatedUserId) {
+      return res.status(403).json({ 
+        error: "Access denied: Cannot generate token for another user" 
+      });
+    }
     
-    console.log(`🔐 Generated JWT token for session ${sessionId} user ${userId || 'anonymous'}`);
+    const token = generateSessionToken(sessionId, authenticatedUserId || userId);
+    
+    // SECURITY: Sanitize PII from logs - only log session ID, not user details
+    console.log(`🔐 Generated JWT token for session ${sanitizePII(sessionId)}`);
     
     res.json({
       token,
       sessionId,
-      userId: userId || 'anonymous',
+      userId: authenticatedUserId || userId || 'anonymous',
       expiresIn: '24h',
       tokenType: 'Bearer'
     });

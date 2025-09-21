@@ -257,7 +257,30 @@ export class FaceRecognitionService {
       arousal: avgArousal,
       valence: avgValence,
       affects: smoothedAffects,
-      basicEmotions: avgBasicEmotions
+      basicEmotions: avgBasicEmotions,
+      sources: {
+        face: {
+          timestamp: Date.now(),
+          faceEmotions: avgBasicEmotions,
+          arousal: avgArousal,
+          valence: avgValence,
+          confidence: 0.8
+        },
+        voice: null,
+        combined: false
+      },
+      fusion: {
+        confidence: 0.8,
+        agreement: 0.9,
+        dominantSource: 'face',
+        conflictResolution: 'weighted-average'
+      },
+      quality: {
+        faceQuality: 0.8,
+        voiceQuality: 0.0,
+        environmentalNoise: 0.1,
+        overallQuality: 0.7
+      }
     };
   }
 
@@ -391,7 +414,30 @@ export class FaceRecognitionService {
       arousal,
       valence,
       affects,
-      basicEmotions: faceEmotions as any
+      basicEmotions: faceEmotions as any,
+      sources: {
+        face: {
+          timestamp: Date.now(),
+          faceEmotions: faceEmotions,
+          arousal: arousal,
+          valence: valence,
+          confidence: 0.8
+        },
+        voice: null,
+        combined: false
+      },
+      fusion: {
+        confidence: 0.8,
+        agreement: 0.9,
+        dominantSource: 'face',
+        conflictResolution: 'weighted-average'
+      },
+      quality: {
+        faceQuality: 0.8,
+        voiceQuality: 0.0,
+        environmentalNoise: 0.1,
+        overallQuality: 0.7
+      }
     };
   }
 

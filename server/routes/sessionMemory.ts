@@ -1,20 +1,154 @@
 /**
  * Session Memory API Routes
  * Revolutionary memory system for EMDR therapy sessions
+ * SECURITY: All endpoints protected with authentication middleware
  */
 
-import { Router } from 'express';
+import { Router, type Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+
+// SECURITY: Authentication middleware for memory endpoints
+function requireAuth(req: Request, res: Response, next: NextFunction) {
+  if (!req.session?.user) {
+    return res.status(401).json({ 
+      error: "Authentication required for memory endpoint access" 
+    });
+  }
+  next();
+}
+
 import { sessionMemoryService } from '../services/sessionMemory';
 import { progressAnalyticsService } from '../services/progressAnalytics';
+import { 
+  insertSessionMemorySnapshotSchema,
+  insertProgressMetricSchema,
+  insertSessionComparisonSchema,
+  insertBreakthroughMomentSchema,
+  insertMemoryInsightSchema,
+  insertEmotionalPatternAnalysisSchema
+} from '../../shared/schema';
 import type { 
   SaveSessionMemoryRequest,
   SessionHistoryRequest,
   CompareSessionsRequest,
-  GenerateProgressReportRequest
+  GenerateProgressReportRequest,
+  EmotionData,
+  EMDRPhase
 } from '../../shared/types';
 
+// === ZOD VALIDATION SCHEMAS ===
+
+// EmotionData Schema for request validation
+const EmotionDataSchema = z.object({
+  timestamp: z.number(),
+  arousal: z.number().min(-1).max(1),
+  valence: z.number().min(-1).max(1),
+  affects: z.record(z.number().min(0).max(100)),
+  basicEmotions: z.record(z.number().min(0).max(1)),
+  sources: z.object({
+    face: z.object({
+      timestamp: z.number(),
+      faceEmotions: z.record(z.number()),
+      arousal: z.number(),
+      valence: z.number(),
+      confidence: z.number()
+    }).nullable(),
+    voice: z.any().nullable(),
+    combined: z.boolean()
+  }),
+  fusion: z.object({
+    confidence: z.number(),
+    agreement: z.number(),
+    dominantSource: z.enum(['face', 'voice', 'balanced']),
+    conflictResolution: z.string()
+  }),
+  quality: z.object({
+    faceQuality: z.number(),
+    voiceQuality: z.number(),
+    environmentalNoise: z.number(),
+    overallQuality: z.number()
+  })
+});
+
+// Save Session Memory Request Schema
+const SaveSessionMemoryRequestSchema = z.object({
+  sessionId: z.string().min(1).max(100),
+  patientId: z.string().min(1).max(100),
+  snapshotType: z.enum(['phase_start', 'phase_end', 'breakthrough', 'trigger_event', 'progress_milestone', 'crisis_alert', 'stability_check']),
+  emotionalSnapshot: EmotionDataSchema,
+  phaseContext: z.enum(['preparation', 'assessment', 'desensitization', 'installation', 'body-scan', 'closure', 'reevaluation', 'integration']),
+  metadata: z.object({
+    sudsLevel: z.number().min(0).max(10).optional(),
+    vocLevel: z.number().min(1).max(7).optional(),
+    blsConfig: z.any().optional(),
+    triggerEvents: z.array(z.string()).optional(),
+    interventions: z.array(z.string()).optional()
+  }).optional()
+}).refine(data => {
+  const jsonSize = JSON.stringify(data).length;
+  return jsonSize < 100000; // 100KB limit
+}, { message: "Request data too large (max 100KB)" });
+
+// Session History Request Schema
+const SessionHistoryRequestSchema = z.object({
+  patientId: z.string().min(1).max(100),
+  timeRange: z.object({
+    start: z.coerce.date(),
+    end: z.coerce.date()
+  }).optional(),
+  sessionIds: z.array(z.string().min(1).max(100)).max(50).optional(),
+  includeSnapshots: z.boolean().optional().default(false),
+  includeMetrics: z.boolean().optional().default(false),
+  includeComparisons: z.boolean().optional().default(false),
+  includeInsights: z.boolean().optional().default(false)
+}).refine(data => {
+  if (data.timeRange) {
+    return data.timeRange.end >= data.timeRange.start;
+  }
+  return true;
+}, { message: "End date must be after start date" });
+
+// Compare Sessions Request Schema  
+const CompareSessionsRequestSchema = z.object({
+  patientId: z.string().min(1).max(100),
+  baselineSessionId: z.string().min(1).max(100),
+  compareSessionId: z.string().min(1).max(100),
+  comparisonType: z.enum(['consecutive', 'milestone', 'breakthrough', 'regression']).optional().default('consecutive'),
+  includeAIAnalysis: z.boolean().optional().default(false)
+}).refine(data => {
+  return data.baselineSessionId !== data.compareSessionId;
+}, { message: "Baseline and compare sessions must be different" });
+
+// Generate Progress Report Request Schema
+const GenerateProgressReportRequestSchema = z.object({
+  patientId: z.string().min(1).max(100),
+  timeScope: z.enum(['session', 'week', 'month', 'quarter', 'all']),
+  includeVisualizations: z.boolean().optional().default(false),
+  includeRecommendations: z.boolean().optional().default(true),
+  includeRiskAssessment: z.boolean().optional().default(true)
+});
+
+// Generate Insights Request Schema
+const GenerateInsightsRequestSchema = z.object({
+  patientId: z.string().min(1).max(100)
+});
+
+// Monitor Patterns Request Schema  
+const MonitorPatternsRequestSchema = z.object({
+  patientId: z.string().min(1).max(100),
+  currentSnapshot: z.any() // SessionMemorySnapshot type
+});
+
+// Patient ID Parameter Schema
+const PatientIdParamSchema = z.object({
+  patientId: z.string().min(1).max(100)
+});
+
+// SECURITY: Create router with authentication protection
 export const sessionMemoryRouter = Router();
+
+// SECURITY: Apply authentication middleware to ALL memory routes
+sessionMemoryRouter.use(requireAuth);
 
 // === MEMORY SNAPSHOT ENDPOINTS ===
 
@@ -24,15 +158,20 @@ export const sessionMemoryRouter = Router();
  */
 sessionMemoryRouter.post('/save', async (req, res) => {
   try {
-    const saveRequest = req.body as SaveSessionMemoryRequest;
+    // Validate request with comprehensive Zod schema
+    const validation = SaveSessionMemoryRequestSchema.safeParse(req.body);
     
-    // Validate required fields
-    if (!saveRequest.sessionId || !saveRequest.patientId || !saveRequest.emotionalSnapshot) {
+    if (!validation.success) {
       return res.status(400).json({ 
-        error: 'Missing required fields: sessionId, patientId, emotionalSnapshot' 
+        error: 'Invalid request data',
+        details: validation.error.issues.map(issue => ({
+          field: issue.path.join('.'),
+          message: issue.message
+        }))
       });
     }
 
+    const saveRequest = validation.data;
     const snapshot = await sessionMemoryService.saveSessionData(saveRequest);
     
     res.json({
@@ -55,14 +194,20 @@ sessionMemoryRouter.post('/save', async (req, res) => {
  */
 sessionMemoryRouter.post('/history', async (req, res) => {
   try {
-    const historyRequest = req.body as SessionHistoryRequest;
+    // Validate request with comprehensive Zod schema
+    const validation = SessionHistoryRequestSchema.safeParse(req.body);
     
-    if (!historyRequest.patientId) {
+    if (!validation.success) {
       return res.status(400).json({ 
-        error: 'Missing required field: patientId' 
+        error: 'Invalid request data',
+        details: validation.error.issues.map(issue => ({
+          field: issue.path.join('.'),
+          message: issue.message
+        }))
       });
     }
 
+    const historyRequest = validation.data;
     const history = await sessionMemoryService.getSessionHistory(historyRequest);
     
     res.json({
@@ -87,14 +232,20 @@ sessionMemoryRouter.post('/history', async (req, res) => {
  */
 sessionMemoryRouter.post('/compare', async (req, res) => {
   try {
-    const compareRequest = req.body as CompareSessionsRequest;
+    // Validate request with comprehensive Zod schema
+    const validation = CompareSessionsRequestSchema.safeParse(req.body);
     
-    if (!compareRequest.patientId || !compareRequest.baselineSessionId || !compareRequest.compareSessionId) {
+    if (!validation.success) {
       return res.status(400).json({ 
-        error: 'Missing required fields: patientId, baselineSessionId, compareSessionId' 
+        error: 'Invalid request data',
+        details: validation.error.issues.map(issue => ({
+          field: issue.path.join('.'),
+          message: issue.message
+        }))
       });
     }
 
+    const compareRequest = validation.data;
     const comparison = await sessionMemoryService.compareSessions(compareRequest);
     
     res.json({
@@ -119,14 +270,20 @@ sessionMemoryRouter.post('/compare', async (req, res) => {
  */
 sessionMemoryRouter.post('/progress/report', async (req, res) => {
   try {
-    const reportRequest = req.body as GenerateProgressReportRequest;
+    // Validate request with comprehensive Zod schema
+    const validation = GenerateProgressReportRequestSchema.safeParse(req.body);
     
-    if (!reportRequest.patientId) {
+    if (!validation.success) {
       return res.status(400).json({ 
-        error: 'Missing required field: patientId' 
+        error: 'Invalid request data',
+        details: validation.error.issues.map(issue => ({
+          field: issue.path.join('.'),
+          message: issue.message
+        }))
       });
     }
 
+    const reportRequest = validation.data;
     const report = await sessionMemoryService.generateProgressReport(reportRequest);
     
     res.json({
@@ -149,10 +306,23 @@ sessionMemoryRouter.post('/progress/report', async (req, res) => {
  */
 sessionMemoryRouter.get('/progress/analytics/:patientId', async (req, res) => {
   try {
-    const { patientId } = req.params;
-    const { timeWindow = 'month' } = req.query;
+    // Validate patient ID parameter
+    const paramValidation = PatientIdParamSchema.safeParse(req.params);
     
-    const trends = await progressAnalyticsService.analyzeTrends(patientId, timeWindow as string);
+    if (!paramValidation.success) {
+      return res.status(400).json({ 
+        error: 'Invalid patient ID',
+        details: paramValidation.error.issues.map(issue => ({
+          field: issue.path.join('.'),
+          message: issue.message
+        }))
+      });
+    }
+
+    const { patientId } = paramValidation.data;
+    const timeWindow = z.enum(['day', 'week', 'month', 'quarter', 'year']).optional().parse(req.query.timeWindow) || 'month';
+    
+    const trends = await progressAnalyticsService.analyzeTrends(patientId, timeWindow);
     
     res.json({
       success: true,
@@ -174,7 +344,20 @@ sessionMemoryRouter.get('/progress/analytics/:patientId', async (req, res) => {
  */
 sessionMemoryRouter.get('/progress/patterns/:patientId', async (req, res) => {
   try {
-    const { patientId } = req.params;
+    // Validate patient ID parameter
+    const paramValidation = PatientIdParamSchema.safeParse(req.params);
+    
+    if (!paramValidation.success) {
+      return res.status(400).json({ 
+        error: 'Invalid patient ID',
+        details: paramValidation.error.issues.map(issue => ({
+          field: issue.path.join('.'),
+          message: issue.message
+        }))
+      });
+    }
+
+    const { patientId } = paramValidation.data;
     
     const patterns = await progressAnalyticsService.identifyPatterns(patientId);
     
@@ -198,7 +381,20 @@ sessionMemoryRouter.get('/progress/patterns/:patientId', async (req, res) => {
  */
 sessionMemoryRouter.get('/progress/predictions/:patientId', async (req, res) => {
   try {
-    const { patientId } = req.params;
+    // Validate patient ID parameter
+    const paramValidation = PatientIdParamSchema.safeParse(req.params);
+    
+    if (!paramValidation.success) {
+      return res.status(400).json({ 
+        error: 'Invalid patient ID',
+        details: paramValidation.error.issues.map(issue => ({
+          field: issue.path.join('.'),
+          message: issue.message
+        }))
+      });
+    }
+
+    const { patientId } = paramValidation.data;
     
     const predictions = await progressAnalyticsService.predictChallenges(patientId);
     
@@ -224,14 +420,20 @@ sessionMemoryRouter.get('/progress/predictions/:patientId', async (req, res) => 
  */
 sessionMemoryRouter.post('/insights/generate', async (req, res) => {
   try {
-    const { patientId } = req.body;
+    // Validate request with comprehensive Zod schema
+    const validation = GenerateInsightsRequestSchema.safeParse(req.body);
     
-    if (!patientId) {
+    if (!validation.success) {
       return res.status(400).json({ 
-        error: 'Missing required field: patientId' 
+        error: 'Invalid request data',
+        details: validation.error.issues.map(issue => ({
+          field: issue.path.join('.'),
+          message: issue.message
+        }))
       });
     }
 
+    const { patientId } = validation.data;
     const insights = await progressAnalyticsService.generateInsights(patientId);
     
     res.json({
@@ -254,14 +456,20 @@ sessionMemoryRouter.post('/insights/generate', async (req, res) => {
  */
 sessionMemoryRouter.post('/insights/monitor', async (req, res) => {
   try {
-    const { patientId, currentSnapshot } = req.body;
+    // Validate request with comprehensive Zod schema
+    const validation = MonitorPatternsRequestSchema.safeParse(req.body);
     
-    if (!patientId || !currentSnapshot) {
+    if (!validation.success) {
       return res.status(400).json({ 
-        error: 'Missing required fields: patientId, currentSnapshot' 
+        error: 'Invalid request data',
+        details: validation.error.issues.map(issue => ({
+          field: issue.path.join('.'),
+          message: issue.message
+        }))
       });
     }
 
+    const { patientId, currentSnapshot } = validation.data;
     const monitoring = await progressAnalyticsService.monitorPatterns(patientId, currentSnapshot);
     
     res.json({
