@@ -13,13 +13,139 @@ export type EMDRPhase =
   | 'reevaluation'     // Phase 7: Reevaluation
   | 'integration';     // Phase 8: Integration and stabilization
 
-// Emotion Analysis interfaces
+// === Revolutionary Voice & Multimodal Emotion Analysis ===
+
+// Voice Emotion Data from speech analysis
+export interface VoiceEmotionData {
+  timestamp: number;
+  // Speech Prosody - 48 dimensions from Hume AI / AssemblyAI
+  prosody: {
+    arousal: number; // -1 to 1, arousal from vocal tone
+    valence: number; // -1 to 1, emotional valence from voice
+    intensity: number; // 0-1, emotional intensity
+    pace: number; // 0-1, speech pace (slow to fast)
+    volume: number; // 0-1, relative volume level
+    pitch: number; // 0-1, relative pitch level
+    stability: number; // 0-1, voice stability/tremor
+  };
+  // Voice-specific emotions
+  voiceEmotions: {
+    confidence: number; // 0-1, confidence in voice detection
+    excitement: number; // 0-1, excitement level
+    stress: number; // 0-1, stress indicators
+    fatigue: number; // 0-1, fatigue level
+    engagement: number; // 0-1, vocal engagement
+    uncertainty: number; // 0-1, hesitation patterns
+    authenticity: number; // 0-1, emotional authenticity
+  };
+  // Provider-specific data
+  provider: 'assemblyai' | 'hume-ai' | 'azure' | 'google-cloud' | 'mock';
+  confidence: number; // 0-1, overall confidence in analysis
+  rawData?: any; // Raw provider response for debugging
+}
+
+// Enhanced Emotion Data with multimodal support
 export interface EmotionData {
   timestamp: number;
-  arousal: number; // 0-1, where 0 is calm and 1 is highly aroused
-  valence: number; // 0-1, where 0 is negative and 1 is positive
+  arousal: number; // -1 to 1, combined arousal (face + voice)
+  valence: number; // -1 to 1, combined valence (face + voice)
   affects: Record<string, number>; // 98 affects from affect theory
   basicEmotions: Record<string, number>; // Basic emotions (happy, sad, angry, etc.)
+  
+  // === MULTIMODAL REVOLUTION ===
+  sources: {
+    face: FaceEmotionData | null;
+    voice: VoiceEmotionData | null;
+    combined: boolean; // true if both sources available
+  };
+  
+  // Fusion metrics
+  fusion: {
+    confidence: number; // 0-1, confidence in combined result
+    agreement: number; // 0-1, how much face and voice agree
+    dominantSource: 'face' | 'voice' | 'balanced'; // Which source is more reliable
+    conflictResolution: string; // How conflicts were resolved
+  };
+  
+  // Quality indicators
+  quality: {
+    faceQuality: number; // 0-1, face detection quality
+    voiceQuality: number; // 0-1, voice analysis quality
+    environmentalNoise: number; // 0-1, background noise level
+    overallQuality: number; // 0-1, combined quality score
+  };
+}
+
+// Face Emotion Data (extracted from existing FaceRecognition)
+export interface FaceEmotionData {
+  timestamp: number;
+  // Face-specific emotions from face-api.js
+  faceEmotions: {
+    neutral: number;
+    happy: number;
+    sad: number;
+    angry: number;
+    fearful: number;
+    disgusted: number;
+    surprised: number;
+  };
+  // Face-derived arousal/valence
+  arousal: number; // -1 to 1
+  valence: number; // -1 to 1
+  confidence: number; // 0-1, face detection confidence
+  landmarks?: any; // Facial landmarks data
+}
+
+// Voice Provider Configuration
+export interface VoiceProviderConfig {
+  provider: 'assemblyai' | 'hume-ai' | 'azure' | 'google-cloud';
+  apiKey: string;
+  endpoint?: string;
+  // Provider-specific settings
+  settings: {
+    // AssemblyAI settings
+    assemblyai?: {
+      sentiment: boolean;
+      emotionDetection: boolean;
+      realtime: boolean;
+      language?: string;
+    };
+    // Hume AI settings  
+    humeai?: {
+      models: string[]; // ['prosody', 'vocal_burst', 'language']
+      granularity: 'utterance' | 'word' | 'segment';
+      emotionDimensions: number; // 48 for voice
+    };
+    // Azure settings
+    azure?: {
+      speechService: string;
+      languageService: string;
+      region: string;
+    };
+    // Google Cloud settings
+    googlecloud?: {
+      speechProject: string;
+      languageProject: string;
+      region: string;
+    };
+  };
+}
+
+// Voice Analysis Status
+export interface VoiceAnalysisStatus {
+  isRecording: boolean;
+  isProcessing: boolean;
+  isConnected: boolean;
+  provider: string;
+  latency: number; // ms, current processing latency
+  error?: string;
+  lastUpdate: number;
+  streamHealth: {
+    packetsReceived: number;
+    packetsLost: number;
+    bitrate: number;
+    jitter: number;
+  };
 }
 
 // === Revolutionary 3D BLS Configuration ===
@@ -211,16 +337,101 @@ export interface AssessmentData {
   validityRating: number;
 }
 
-// Emotion Capture for database
+// Enhanced Emotion Capture with multimodal support
 export interface EmotionCapture {
   id: string;
   sessionId: string;
   patientId: string;
   timestamp: number;
-  source: 'face' | 'voice' | 'combined';
+  source: 'face' | 'voice' | 'multimodal' | 'fused'; // Updated for multimodal
   emotionData: EmotionData;
   blsConfig?: BLSConfiguration;
   phaseContext?: EMDRPhase;
+  
+  // === MULTIMODAL ENHANCEMENTS ===
+  multimodalMetrics: {
+    fusionQuality: number; // 0-1, quality of face+voice fusion
+    modalityAgreement: number; // 0-1, how much modalities agree
+    preferredModality: 'face' | 'voice' | 'balanced';
+    processingLatency: number; // ms, total processing time
+    confidenceThreshold: number; // 0-1, minimum confidence used
+  };
+  
+  // Raw modality data for research/debugging
+  rawData?: {
+    faceRaw?: any;
+    voiceRaw?: any;
+    fusionLog?: string[];
+  };
+}
+
+// Voice Recording Configuration
+export interface VoiceRecordingConfig {
+  enabled: boolean;
+  provider: VoiceProviderConfig;
+  
+  // Audio capture settings
+  audioConstraints: {
+    sampleRate: number; // 16000 Hz recommended
+    channels: number; // 1 for mono, 2 for stereo
+    echoCancellation: boolean;
+    noiseSuppression: boolean;
+    autoGainControl: boolean;
+  };
+  
+  // Processing settings
+  processing: {
+    realtime: boolean; // Real-time vs batch processing
+    chunkDuration: number; // ms, audio chunk size
+    overlap: number; // ms, overlap between chunks
+    minConfidence: number; // 0-1, minimum confidence threshold
+    smoothingWindow: number; // Number of samples for smoothing
+  };
+  
+  // Privacy settings
+  privacy: {
+    storeAudio: boolean; // Store raw audio files
+    encryptAudio: boolean; // Encrypt stored audio
+    autoDelete: number; // Hours after which to delete audio
+    consentVerified: boolean; // User consent for voice recording
+  };
+}
+
+// Multimodal Fusion Configuration
+export interface EmotionFusionConfig {
+  enabled: boolean;
+  
+  // Fusion strategy
+  strategy: 'weighted-average' | 'confidence-based' | 'mutual-information' | 'ai-learned';
+  
+  // Weighting preferences
+  weights: {
+    faceWeight: number; // 0-1, weight for face emotions
+    voiceWeight: number; // 0-1, weight for voice emotions
+    adaptiveWeighting: boolean; // Adjust weights based on quality
+  };
+  
+  // Conflict resolution
+  conflictResolution: {
+    strategy: 'average' | 'highest-confidence' | 'contextual' | 'ai-mediated';
+    disagreementThreshold: number; // 0-1, when modalities are considered in conflict
+    fallbackToSingle: boolean; // Use single modality if fusion fails
+  };
+  
+  // Quality requirements
+  qualityGates: {
+    minFaceConfidence: number; // 0-1
+    minVoiceConfidence: number; // 0-1
+    minOverallQuality: number; // 0-1
+    requireBothModalities: boolean; // Require both face and voice
+  };
+  
+  // Temporal synchronization
+  synchronization: {
+    maxTimeDrift: number; // ms, max acceptable time difference
+    interpolationMethod: 'linear' | 'cubic' | 'nearest';
+    bufferSize: number; // Number of samples to buffer for sync
+  };
 }
 
 // AI Therapy Session Log

@@ -3,7 +3,6 @@ import { createServer, type Server } from "http";
 import { WebSocketServer } from "ws";
 import { storage } from "./storage";
 import { z } from "zod";
-import jwt from "jsonwebtoken";
 import { backendAITherapist } from "./services/aiTherapist";
 import type { 
   EmotionData, 
@@ -45,10 +44,10 @@ interface AuthenticatedRequest extends Request {
 // Zod schemas for validation
 const EmotionDataSchema = z.object({
   timestamp: z.number(),
-  arousal: z.number().min(-1).max(1),
-  valence: z.number().min(-1).max(1),
-  affects: z.record(z.number().min(0).max(100)),
-  basicEmotions: z.record(z.number().min(0).max(1))
+  arousal: z.number().min(-1).max(1), // Fixed: Now uses [-1, 1] range
+  valence: z.number().min(-1).max(1), // Fixed: Now uses [-1, 1] range
+  affects: z.record(z.number().min(0).max(100)), // Percentages 0-100
+  basicEmotions: z.record(z.number().min(0).max(1)) // Normalized 0-1
 });
 
 // Schema for emotion capture endpoint
@@ -63,8 +62,9 @@ const EmotionCaptureSchema = z.object({
     pattern: z.enum(['horizontal', 'vertical', 'diagonal', 'circular'])
   }).optional()
 }).refine(data => {
+  // Additional validation: ensure data size is reasonable
   const jsonSize = JSON.stringify(data).length;
-  return jsonSize < 50000;
+  return jsonSize < 50000; // Max 50KB per capture
 }, {
   message: "Emotion capture data too large (max 50KB)"
 });
@@ -93,6 +93,8 @@ const PredictPhaseRequestSchema = z.object({
   sudsLevel: z.number().min(0).max(10)
 });
 
+// === New AI Therapist Schemas ===
+
 // AI Chat Message Schema
 const AIChatMessageSchema = z.object({
   message: z.string().min(1).max(1000),
@@ -103,7 +105,7 @@ const AIChatMessageSchema = z.object({
       triggers: z.array(z.string()).default([]),
       calmingTechniques: z.array(z.string()).default([])
     }),
-    conversationHistory: z.array(z.any()).default([]),
+    conversationHistory: z.array(z.any()).default([]), // AITherapistMessage array
     currentEmotionalState: EmotionDataSchema,
     phaseContext: z.object({
       currentPhase: z.enum(['preparation', 'assessment', 'desensitization', 'installation', 'body-scan', 'closure', 'reevaluation', 'integration']),
@@ -144,84 +146,44 @@ const EmotionResponseSchema = z.object({
 });
 
 // Rate limiting store for AI endpoints
-const aiRateLimitStore = new Map();
+const aiRateLimitStore = new Map<string, { count: number; resetTime: number }>();
 
 // WebSocket connections for real-time voice streaming
-const wsConnections = new Map();
-const activeStreams = new Map();
+const wsConnections = new Map<string, { ws: any; provider: string; lastActivity: number }>>();
+const activeStreams = new Map<string, { provider: string; connection: any }>();
 let wss: WebSocketServer;
 
-// JWT Secret for WebSocket authentication
-const JWT_SECRET = process.env.JWT_SECRET || 'emdr42-development-secret-key-change-in-production';
-
-// Generate JWT token for session authentication
-function generateSessionToken(sessionId: string, userId?: string): string {
-  const payload = {
-    sessionId,
-    userId: userId || 'anonymous',
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours
-  };
-  return jwt.sign(payload, JWT_SECRET);
-}
-
-// Verify JWT token for WebSocket authentication
-function verifySessionToken(token: string): any {
-  try {
-    return jwt.verify(token, JWT_SECRET);
-  } catch (error) {
-    return null;
-  }
-}
-
-// Origin validation for WebSocket security
-function isAllowedOrigin(origin: string): boolean {
-  const allowedOrigins = [
-    'http://localhost:5000',
-    'https://localhost:5000',
-    'http://127.0.0.1:5000',
-    'https://127.0.0.1:5000',
-    process.env.FRONTEND_URL,
-    // Add Replit environment URLs
-    /https:\/\/[\w-]+\.repl\.co$/,
-    /https:\/\/[\w-]+\.replit\.dev$/
-  ].filter(Boolean);
-  
-  return allowedOrigins.some(allowed => {
-    if (typeof allowed === 'string') {
-      return origin === allowed;
-    } else if (allowed instanceof RegExp) {
-      return allowed.test(origin);
-    }
-    return false;
-  });
-}
-
 // Helper function to create full EmotionData from basic emotion data
-function createFullEmotionData(basicData: any): EmotionData {
+function createFullEmotionData(basicData: {
+  timestamp: number;
+  arousal: number;
+  valence: number;
+  affects: Record<string, number>;
+  basicEmotions: Record<string, number>;
+}): EmotionData {
   return {
     ...basicData,
     sources: {
-      face: null,
-      voice: null,
-      combined: false
+      face: null, // Will be populated by face recognition service
+      voice: null, // Will be populated by voice recognition service
+      combined: false // Set to true when both sources are available
     },
     fusion: {
-      confidence: 0.7,
-      agreement: 0.8,
-      dominantSource: 'balanced',
-      conflictResolution: 'weighted-average'
+      confidence: 0.7, // Default confidence when using basic emotion data
+      agreement: 0.8, // Default agreement score
+      dominantSource: 'balanced', // Balanced when no specific source
+      conflictResolution: 'weighted-average' // Default conflict resolution method
     },
     quality: {
-      faceQuality: 0.0,
-      voiceQuality: 0.0,
-      environmentalNoise: 0.1,
-      overallQuality: 0.5
+      faceQuality: 0.0, // No face data available
+      voiceQuality: 0.0, // No voice data available
+      environmentalNoise: 0.1, // Low noise assumed
+      overallQuality: 0.5 // Moderate quality for basic emotion data
     }
   };
 }
 
-// Voice Provider API Keys (Server-Side Only)
+// === Voice Provider API Keys (Server-Side Only) ===
 const VOICE_PROVIDER_KEYS = {
   assemblyai: process.env.ASSEMBLYAI_API_KEY || '',
   humeai: process.env.HUME_AI_API_KEY || '',
@@ -232,7 +194,7 @@ const VOICE_PROVIDER_KEYS = {
 // Voice Provider Proxy Schemas
 const VoiceProxyRequestSchema = z.object({
   provider: z.enum(['assemblyai', 'hume-ai', 'azure', 'google-cloud']),
-  audioData: z.string(),
+  audioData: z.string(), // Base64 encoded audio
   audioFormat: z.enum(['pcm', 'webm', 'wav']).default('pcm'),
   sampleRate: z.number().default(16000),
   sessionId: z.string().optional()
@@ -265,7 +227,7 @@ function aiRateLimit(req: Request, res: Response, next: NextFunction) {
   const userLimit = aiRateLimitStore.get(userId);
   
   if (!userLimit || now > userLimit.resetTime) {
-    aiRateLimitStore.set(userId, { count: 1, resetTime: now + 60000 });
+    aiRateLimitStore.set(userId, { count: 1, resetTime: now + 60000 }); // 1 minute
     return next();
   }
   
@@ -288,6 +250,7 @@ function validateSessionOwnership(req: Request, res: Response, next: NextFunctio
     return res.status(400).json({ error: "Session ID required" });
   }
   
+  // Extract patient ID from session ID if it follows pattern "session-patientId-timestamp-rand"
   const sessionParts = sessionId.split('-');
   if (sessionParts.length >= 3) {
     const sessionPatientId = sessionParts[1];
@@ -408,17 +371,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // === Revolutionary AI Therapist Endpoints ===
+
   // AI Therapist Chat Message - Direct communication with AI therapist
   app.post("/api/ai-therapist/message", requireAuth, aiRateLimit, validateSessionOwnership, async (req, res) => {
     try {
       const validatedData = AIChatMessageSchema.parse(req.body);
       
+      // Create full AIChatContext with complete EmotionData
       const fullContext: AIChatContext = {
         ...validatedData.context,
         currentEmotionalState: createFullEmotionData(validatedData.context.currentEmotionalState),
         patientProfile: {
           ...validatedData.context.patientProfile,
-          preferences: {} as any
+          preferences: {} as any // Will be populated by backend service
         },
         sessionMetrics: validatedData.context.sessionMetrics || {
           sudsLevels: [],
@@ -510,12 +476,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // === Voice Provider Security Proxy Endpoints ===
+  
   // Process audio through voice providers (secure backend proxy)
   app.post("/api/voice/process", requireAuth, async (req, res) => {
     try {
       const validatedData = VoiceProxyRequestSchema.parse(req.body);
       const { provider, audioData, audioFormat, sampleRate } = validatedData;
       
+      // Get API key for provider
       const apiKey = VOICE_PROVIDER_KEYS[provider as keyof typeof VOICE_PROVIDER_KEYS];
       if (!apiKey) {
         return res.status(500).json({ 
@@ -523,6 +492,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
+      // Process audio based on provider
       let emotionResult;
       
       switch (provider) {
@@ -565,6 +535,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = VoiceStreamRequestSchema.parse(req.body);
       const { provider, sessionId, action } = validatedData;
       
+      // Get API key for provider
       const apiKey = VOICE_PROVIDER_KEYS[provider as keyof typeof VOICE_PROVIDER_KEYS];
       if (!apiKey) {
         return res.status(500).json({ 
@@ -640,21 +611,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Rate limiting middleware for emotion capture
-  const emotionCaptureRateLimiter = new Map();
+  const emotionCaptureRateLimiter = new Map<string, { count: number; resetTime: number }>();
   
   const checkRateLimit = (identifier: string): boolean => {
     const now = Date.now();
     const limit = emotionCaptureRateLimiter.get(identifier);
     
     if (!limit || now > limit.resetTime) {
+      // Reset counter every minute
       emotionCaptureRateLimiter.set(identifier, {
         count: 1,
-        resetTime: now + 60000
+        resetTime: now + 60000 // 1 minute
       });
       return true;
     }
     
     if (limit.count >= 20) {
+      // Max 20 requests per minute
       return false;
     }
     
@@ -670,17 +643,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         emotionCaptureRateLimiter.delete(key);
       }
     });
-  }, 300000);
+  }, 300000); // 5 minutes
+  
+  // Emotion capture endpoints with full validation
   
   // Save emotion capture with validation and rate limiting
   app.post("/api/emotions/capture", async (req, res) => {
     try {
+      // Check authentication
       if (!req.session?.user) {
         return res.status(401).json({ 
           error: "Authentication required. Please log in to capture emotions." 
         });
       }
       
+      // Rate limiting per user/IP combination
       const rateLimitKey = `${req.session.user.id}_${req.ip}`;
       if (!checkRateLimit(rateLimitKey)) {
         return res.status(429).json({ 
@@ -688,6 +665,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
+      // Validate request body with Zod schema
       let validatedData;
       try {
         validatedData = EmotionCaptureSchema.parse(req.body);
@@ -704,10 +682,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw zodError;
       }
       
+      // Use validated data with fallbacks
       const { emotionData, sessionId } = validatedData;
       const patientId = validatedData.patientId || req.session.user.id;
       const phase = validatedData.phase || 'desensitization';
       
+      // Additional security: verify patient access
       if (req.session.user.role === 'patient' && 
           patientId !== req.session.user.id) {
         return res.status(403).json({ 
@@ -715,6 +695,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
+      // Create emotion capture record with validated data
       const emotionCapture = await storage.createEmotionCapture({
         sessionId,
         patientId,
@@ -781,6 +762,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     }
   });
+  
+  // Session management endpoints
   
   // Create new EMDR session
   app.post("/api/sessions", async (req, res) => {
@@ -861,6 +844,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Existing storage routes can go here
+  // e.g. storage.insertUser(user) or storage.getUserByUsername(username)
+
   // Voice stream health check endpoint
   app.get("/api/voice/health", (req, res) => {
     const activeSessionsCount = wsConnections.size;
@@ -881,267 +867,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Initialize WebSocket server for voice streaming
   wss = new WebSocketServer({ server, path: '/voice-stream' });
   
-  // Handle WebSocket connections for real-time voice streaming with AUTHENTICATION
+  // Handle WebSocket connections for real-time voice streaming
   wss.on('connection', (ws: any, req: any) => {
-    const url = new URL(req.url || '', 'http://localhost');
-    const sessionId = url.searchParams.get('sessionId');
-    const provider = url.searchParams.get('provider');
-    const authToken = url.searchParams.get('token') || req.headers.authorization?.replace('Bearer ', '');
+    const sessionId = new URL(req.url || '', 'http://localhost').searchParams.get('sessionId');
+    const provider = new URL(req.url || '', 'http://localhost').searchParams.get('provider');
     
-    // CRITICAL SECURITY: Validate authentication
     if (!sessionId || !provider) {
-      ws.close(1008, 'Missing sessionId or provider');
-      console.error(`❌ WebSocket rejected: Missing parameters`);
+      ws.close(1000, 'Missing sessionId or provider');
       return;
     }
     
-    // CRITICAL SECURITY: JWT Authentication validation for WebSocket connections
-    let tokenPayload = null;
-    let authMethod = 'none';
+    console.log(`🎤 WebSocket connected: ${provider} session ${sessionId}`);
     
-    if (authToken) {
-      // Verify JWT token
-      tokenPayload = verifySessionToken(authToken);
-      if (!tokenPayload) {
-        ws.close(1008, 'Invalid JWT token');
-        console.error(`❌ WebSocket rejected: Invalid JWT token for session ${sessionId}`);
-        return;
-      }
-      
-      // Verify token sessionId matches request sessionId
-      if (tokenPayload.sessionId !== sessionId) {
-        ws.close(1008, 'JWT session mismatch');
-        console.error(`❌ WebSocket rejected: JWT sessionId mismatch ${tokenPayload.sessionId} !== ${sessionId}`);
-        return;
-      }
-      
-      authMethod = 'jwt';
-      console.log(`✅ WebSocket authenticated via JWT: session ${sessionId} user ${tokenPayload.userId}`);
-      
-    } else if (sessionId.match(/^session-\d+-[a-z0-9]{9}$/)) {
-      // Fallback: Basic session format validation (for development)
-      authMethod = 'session-format';
-      console.log(`⚠️ WebSocket authenticated via session format: ${sessionId} (consider using JWT)`);
-      
-    } else {
-      ws.close(1008, 'Authentication required: No valid JWT token or session format');
-      console.error(`❌ WebSocket rejected: Authentication required for session ${sessionId}`);
-      return;
-    }
-    
-    // CRITICAL SECURITY: Origin validation
-    const origin = req.headers.origin;
-    if (origin && !isAllowedOrigin(origin)) {
-      ws.close(1008, 'Origin not allowed');
-      console.error(`❌ WebSocket rejected: Invalid origin ${origin} for session ${sessionId}`);
-      return;
-    }
-    
-    // Rate limiting per session
-    const now = Date.now();
-    const existingConnection = wsConnections.get(sessionId);
-    if (existingConnection && (now - existingConnection.lastActivity) < 1000) {
-      ws.close(1013, 'Rate limit: Too many connection attempts');
-      console.error(`❌ WebSocket rejected: Rate limited ${sessionId}`);
-      return;
-    }
-    
-    console.log(`🎤 WebSocket authenticated successfully: ${provider} session ${sessionId} [${authMethod.toUpperCase()}] origin: ${origin || 'none'}`);
-    
-    // Store WebSocket connection with authentication info
-    const connection = {
+    // Store WebSocket connection
+    wsConnections.set(sessionId, {
       ws,
       provider,
-      lastActivity: Date.now(),
-      authenticated: true,
-      connectionId: `${sessionId}-${Date.now()}`,
-      rateLimitCount: 0,
-      rateLimitReset: Date.now() + 60000,
-      startTime: Date.now(),
-      emotionPacketsReceived: 0,
-      providerFailures: 0,
-      currentProvider: provider,
-      telemetryTimer: null as any
-    };
+      lastActivity: Date.now()
+    });
     
-    wsConnections.set(sessionId, connection);
-    
-    // Start periodic telemetry emission (every 2 seconds)
-    connection.telemetryTimer = setInterval(() => {
-      if (connection.ws.readyState === 1) { // WebSocket.OPEN
-        const telemetryData = {
-          type: 'telemetry',
-          sessionId,
-          timestamp: Date.now(),
-          connectionUptime: Date.now() - connection.startTime,
-          currentProvider: connection.currentProvider,
-          packetsReceived: connection.emotionPacketsReceived,
-          providerFailures: connection.providerFailures,
-          rateLimitCount: connection.rateLimitCount,
-          latency: Date.now() - connection.lastActivity,
-          connectionId: connection.connectionId,
-          authMethod,
-          status: 'active'
-        };
-        
-        connection.ws.send(JSON.stringify(telemetryData));
-        console.log(`📊 Telemetry emitted for session ${sessionId}: provider=${connection.currentProvider}, packets=${connection.emotionPacketsReceived}`);
-      }
-    }, 2000);
-    
-    // Handle incoming audio data with enhanced security and rate limiting
+    // Handle incoming audio data
     ws.on('message', async (data: Buffer) => {
       try {
-        const connection = wsConnections.get(sessionId);
-        if (!connection || !connection.authenticated) {
-          ws.close(1008, 'Unauthorized: Connection not authenticated');
-          return;
-        }
-        
-        // CRITICAL SECURITY: Rate limiting per connection
-        const now = Date.now();
-        if (now > connection.rateLimitReset) {
-          connection.rateLimitCount = 0;
-          connection.rateLimitReset = now + 60000; // Reset every minute
-        }
-        
-        connection.rateLimitCount++;
-        if (connection.rateLimitCount > 100) { // Max 100 messages per minute
-          ws.send(JSON.stringify({ 
-            error: 'Rate limit exceeded',
-            maxMessages: 100,
-            resetTime: connection.rateLimitReset 
-          }));
-          return;
-        }
-        
         const message = JSON.parse(data.toString());
         
         if (message.type === 'audio') {
           // Get stream configuration
           const stream = activeStreams.get(sessionId);
           if (!stream) {
-            ws.send(JSON.stringify({ 
-              error: 'No active stream for session',
-              sessionId,
-              timestamp: Date.now()
-            }));
+            ws.send(JSON.stringify({ error: 'No active stream for session' }));
             return;
           }
           
-          // CRITICAL: Process audio through the appropriate provider with fallback
-          let result;
-          let currentProvider = connection.currentProvider;
-          const originalProvider = currentProvider;
+          // Process audio through the appropriate provider
+          const result = await processProviderAudio(provider, message.audioData, stream.connection.apiKey);
           
-          // Add forced failure simulation for testing (10% chance)
-          const forceFailure = Math.random() < 0.1;
-          
-          try {
-            if (forceFailure) {
-              throw new Error('Simulated provider failure for testing fallback chain');
-            }
-            
-            result = await processProviderAudio(currentProvider, message.audioData, stream.connection.apiKey);
-            
-            if (!result.success) {
-              throw new Error(result.error || 'Provider returned failure');
-            }
-            
-            // Log successful processing for telemetry
-            console.log(`✅ Audio processed successfully: ${currentProvider} session ${sessionId}`);
-            connection.emotionPacketsReceived++;
-            
-          } catch (providerError) {
-            console.error(`❌ Provider ${currentProvider} failed, attempting fallback:`, providerError);
-            connection.providerFailures++;
-            
-            // CRITICAL FEATURE: Enhanced provider fallback system with observable events
-            const fallbackProviders = ['hume-ai', 'azure', 'google-cloud'].filter(p => p !== currentProvider);
-            let fallbackSuccess = false;
-            
-            for (const fallbackProvider of fallbackProviders) {
-              try {
-                console.log(`🔄 Provider fallback: ${currentProvider} → ${fallbackProvider} for session ${sessionId}`);
-                
-                const fallbackApiKey = VOICE_PROVIDER_KEYS[fallbackProvider.replace('-', '')] || VOICE_PROVIDER_KEYS[fallbackProvider];
-                result = await processProviderAudio(fallbackProvider, message.audioData, fallbackApiKey);
-                
-                if (result.success) {
-                  console.log(`✅ Provider fallback successful: ${currentProvider} → ${fallbackProvider} session ${sessionId}`);
-                  
-                  // Update connection to use fallback provider
-                  connection.currentProvider = fallbackProvider;
-                  connection.emotionPacketsReceived++;
-                  
-                  // Send structured provider switch notification with detailed telemetry
-                  const providerChangeEvent = {
-                    type: 'providerChange',
-                    event: 'provider-fallback',
-                    oldProvider: currentProvider,
-                    newProvider: fallbackProvider,
-                    sessionId,
-                    timestamp: Date.now(),
-                    reason: 'provider-failure',
-                    failureCount: connection.providerFailures,
-                    telemetry: {
-                      totalPackets: connection.emotionPacketsReceived,
-                      uptime: Date.now() - connection.startTime,
-                      connectionId: connection.connectionId
-                    }
-                  };
-                  
-                  ws.send(JSON.stringify(providerChangeEvent));
-                  console.log(`📊 Provider change event emitted: ${currentProvider} → ${fallbackProvider}`);
-                  
-                  fallbackSuccess = true;
-                  break;
-                } else {
-                  throw new Error(result.error || 'Fallback provider returned failure');
-                }
-              } catch (fallbackError) {
-                console.error(`❌ Fallback ${fallbackProvider} also failed:`, fallbackError);
-                connection.providerFailures++;
-              }
-            }
-            
-            if (!fallbackSuccess) {
-              // All providers failed - send error but keep connection alive
-              ws.send(JSON.stringify({
-                type: 'error',
-                error: 'All voice providers failed',
-                sessionId,
-                timestamp: Date.now(),
-                providerFailures: connection.providerFailures
-              }));
-              return; // Skip sending emotion data
-            }
-          }
-          
-          // Send emotion results back to client with enhanced telemetry
-          const emotionMessage = {
+          // Send emotion results back to client
+          ws.send(JSON.stringify({
             type: 'emotion',
             sessionId,
-            provider: connection.currentProvider, // May have changed due to fallback
+            provider,
             data: result,
-            timestamp: Date.now(),
-            telemetry: {
-              packetsReceived: connection.emotionPacketsReceived,
-              latency: Date.now() - (message.timestamp || Date.now()),
-              connectionId: connection.connectionId,
-              currentProvider: connection.currentProvider,
-              providerFailures: connection.providerFailures,
-              uptime: Date.now() - connection.startTime,
-              originalProvider: originalProvider,
-              providerSwitched: originalProvider !== connection.currentProvider
-            }
-          };
-          
-          ws.send(JSON.stringify(emotionMessage));
-          console.log(`📨 Received emotion data via WebSocket: ${connection.currentProvider} session ${sessionId} packet #${connection.emotionPacketsReceived}`);
+            timestamp: Date.now()
+          }));
           
           // Update last activity
-          connection.lastActivity = Date.now();
+          const connection = wsConnections.get(sessionId);
+          if (connection) {
+            connection.lastActivity = Date.now();
+          }
         }
       } catch (error) {
         console.error('WebSocket message error:', error);
@@ -1153,25 +927,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
     
     ws.on('close', () => {
-      console.log(`🎤 WebSocket disconnected: ${connection.currentProvider} session ${sessionId}`);
-      
-      // Clear telemetry timer
-      if (connection.telemetryTimer) {
-        clearInterval(connection.telemetryTimer);
-      }
-      
+      console.log(`🎤 WebSocket disconnected: ${provider} session ${sessionId}`);
       wsConnections.delete(sessionId);
     });
     
     ws.on('error', (error: any) => {
       console.error('WebSocket error:', error);
-      
-      // Clear telemetry timer
-      const conn = wsConnections.get(sessionId);
-      if (conn?.telemetryTimer) {
-        clearInterval(conn.telemetryTimer);
-      }
-      
       wsConnections.delete(sessionId);
     });
   });
@@ -1181,7 +942,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const now = Date.now();
     const timeout = 5 * 60 * 1000; // 5 minutes
     
-    wsConnections.forEach((connection, sessionId) => {
+    for (const [sessionId, connection] of wsConnections.entries()) {
       if (now - connection.lastActivity > timeout) {
         console.log(`🧹 Cleaning up inactive WebSocket: ${sessionId}`);
         try {
@@ -1191,377 +952,438 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         wsConnections.delete(sessionId);
       }
-    });
+    }
   }, 30000);
 
-  // JWT Token generation endpoint for session authentication
-  app.post("/api/auth/generate-token", (req, res) => {
-    const { sessionId, userId } = req.body;
-    
-    if (!sessionId) {
-      return res.status(400).json({ error: "Session ID required" });
-    }
-    
-    const token = generateSessionToken(sessionId, userId);
-    
-    console.log(`🔐 Generated JWT token for session ${sessionId} user ${userId || 'anonymous'}`);
-    
-    res.json({
-      token,
-      sessionId,
-      userId: userId || 'anonymous',
-      expiresIn: '24h',
-      tokenType: 'Bearer'
-    });
-  });
-
   console.log('🚀 Voice WebSocket Server initialized on /voice-stream');
-  console.log('🔐 JWT Token generation endpoint available at /api/auth/generate-token');
   return server;
 }
 
-// Voice Provider Helper Functions
+// === Voice Provider Proxy Helper Functions ===
+
+// Session management for streaming providers
+// Note: activeStreams is declared at the top of the file with wsConnections
+
 async function processAssemblyAIAudio(audioData: string, apiKey: string) {
-  const timestamp = Date.now();
-  
   try {
-    if (!apiKey) {
-      // Realistic simulation when no API key is available
-      console.log('🎤 AssemblyAI: Using realistic simulation (no API key)');
-      
-      // Simulate realistic processing time
-      await new Promise(resolve => setTimeout(resolve, 150 + Math.random() * 100));
-      
-      // Generate realistic voice emotion analysis based on audio properties
-      const audioSize = audioData.length;
-      const simulatedIntensity = Math.min(audioSize / 10000, 1); // Simulate volume-based intensity
-      
-      const voiceEmotions = {
-        timestamp,
-        prosody: {
-          arousal: Math.random() * 0.6 + simulatedIntensity * 0.4, // 0-1 range
-          valence: (Math.random() - 0.5) * 0.8, // -0.4 to 0.4 range
-          intensity: simulatedIntensity,
-          pace: 0.5 + Math.random() * 0.3,
-          volume: simulatedIntensity,
-          pitch: 0.4 + Math.random() * 0.3,
-          stability: 0.7 + Math.random() * 0.2
-        },
-        voiceEmotions: {
-          confidence: 0.75 + Math.random() * 0.2,
-          excitement: Math.max(0, simulatedIntensity * 0.8 + (Math.random() - 0.5) * 0.2),
-          stress: Math.max(0, simulatedIntensity * 0.6 + (Math.random() - 0.5) * 0.3),
-          fatigue: Math.max(0, 0.3 - simulatedIntensity * 0.2 + (Math.random() - 0.5) * 0.2),
-          engagement: Math.max(0.1, simulatedIntensity * 0.7 + 0.2 + (Math.random() - 0.5) * 0.1),
-          uncertainty: Math.max(0, 0.3 - simulatedIntensity * 0.2 + (Math.random() - 0.5) * 0.2),
-          authenticity: 0.8 + Math.random() * 0.15
-        },
-        provider: 'assemblyai',
-        confidence: 0.85,
-        rawData: { 
-          simulatedText: 'Processing audio...', 
-          audioSize, 
-          processingTime: Date.now() - timestamp 
-        }
-      };
-      
-      return { 
-        provider: 'assemblyai', 
-        success: true, 
-        voiceEmotions,
-        timestamp,
-        latency: Date.now() - timestamp
-      };
-    }
-    
-    // Real AssemblyAI API integration (when API key is available)
-    console.log('🎤 AssemblyAI: Processing with real API');
-    const response = await fetch('https://api.assemblyai.com/v2/realtime/audio', {
+    const response = await fetch('https://api.assemblyai.com/v2/realtime/token', {
       method: 'POST',
       headers: {
         'Authorization': apiKey,
-        'Content-Type': 'application/octet-stream'
+        'Content-Type': 'application/json'
       },
-      body: Buffer.from(audioData, 'base64')
+      body: JSON.stringify({
+        expires_in: 3600, // 1 hour
+        sample_rate: 16000
+      })
     });
-    
+
     if (!response.ok) {
-      throw new Error(`AssemblyAI API error: ${response.status} ${response.statusText}`);
+      throw new Error(`AssemblyAI API error: ${response.status}`);
     }
-    
+
     const result = await response.json();
     
-    // Convert AssemblyAI response to our format
-    const voiceEmotions = {
-      timestamp,
-      prosody: {
-        arousal: result.sentiment_analysis?.arousal || 0,
-        valence: result.sentiment_analysis?.valence || 0,
-        intensity: result.confidence || 0.5,
-        pace: result.words_per_minute ? Math.min(result.words_per_minute / 200, 1) : 0.5,
-        volume: 0.6, // AssemblyAI doesn't provide volume
-        pitch: 0.5, // AssemblyAI doesn't provide pitch directly
-        stability: result.confidence || 0.5
-      },
-      voiceEmotions: {
-        confidence: result.confidence || 0.7,
-        excitement: Math.max(0, (result.sentiment_analysis?.arousal || 0) * 0.8),
-        stress: result.sentiment_analysis?.negative || 0,
-        fatigue: 1 - (result.confidence || 0.5),
-        engagement: result.confidence || 0.5,
-        uncertainty: 1 - (result.confidence || 0.5),
-        authenticity: result.confidence || 0.7
-      },
+    return {
       provider: 'assemblyai',
-      confidence: result.confidence || 0.7,
-      rawData: result
+      success: true,
+      data: result,
+      timestamp: Date.now()
     };
-    
-    return { 
-      provider: 'assemblyai', 
-      success: true, 
-      voiceEmotions,
-      timestamp,
-      latency: Date.now() - timestamp
-    };
-    
   } catch (error) {
-    console.error('❌ AssemblyAI processing error:', error);
-    return { 
-      provider: 'assemblyai', 
-      success: false, 
+    console.error('AssemblyAI processing error:', error);
+    return {
+      provider: 'assemblyai',
+      success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
-      timestamp,
-      latency: Date.now() - timestamp
+      timestamp: Date.now()
     };
   }
 }
 
 async function processHumeAIAudio(audioData: string, apiKey: string) {
-  const timestamp = Date.now();
-  
   try {
-    console.log('🎤 Hume AI: Processing audio with advanced prosody analysis');
-    
-    // Simulate realistic processing time for Hume AI
-    await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 150));
-    
-    if (!apiKey) {
-      console.log('🎤 Hume AI: Using realistic simulation (no API key)');
-      
-      // Generate sophisticated prosody-based emotion analysis
-      const audioSize = audioData.length;
-      const simulatedProsody = {
-        arousal: Math.random() * 0.8 + 0.1,
-        valence: (Math.random() - 0.5) * 1.6, // Full -0.8 to 0.8 range
-        intensity: Math.min(audioSize / 8000, 1),
-        pace: 0.3 + Math.random() * 0.5,
-        volume: 0.4 + Math.random() * 0.4,
-        pitch: 0.3 + Math.random() * 0.5,
-        stability: 0.6 + Math.random() * 0.3
-      };
-      
-      const voiceEmotions = {
-        timestamp,
-        prosody: simulatedProsody,
-        voiceEmotions: {
-          confidence: 0.85 + Math.random() * 0.1,
-          excitement: Math.max(0, simulatedProsody.arousal * 0.9),
-          stress: Math.max(0, (1 - simulatedProsody.valence) * 0.7),
-          fatigue: Math.max(0, 0.4 - simulatedProsody.arousal * 0.3),
-          engagement: Math.max(0.2, simulatedProsody.arousal * 0.8 + 0.1),
-          uncertainty: Math.max(0, 0.5 - simulatedProsody.intensity * 0.4),
-          authenticity: 0.75 + Math.random() * 0.2
-        },
-        provider: 'hume-ai',
-        confidence: 0.9,
-        rawData: { 
-          simulation: true, 
-          audioSize, 
-          prosodyDimensions: 48,
-          processingTime: Date.now() - timestamp 
-        }
-      };
-      
-      return { 
-        provider: 'hume-ai', 
-        success: true, 
-        voiceEmotions,
-        timestamp,
-        latency: Date.now() - timestamp
-      };
+    // Hume AI WebSocket token generation
+    const response = await fetch('https://api.hume.ai/oauth2-cc/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: `grant_type=client_credentials&client_id=${apiKey}&client_secret=${apiKey}`
+    });
+
+    if (!response.ok) {
+      throw new Error(`Hume AI API error: ${response.status}`);
     }
+
+    const result = await response.json();
     
-    // TODO: Real Hume AI API integration would go here
-    throw new Error('Hume AI API not configured - this will trigger fallback');
-    
+    return {
+      provider: 'hume-ai',
+      success: true,
+      data: result,
+      timestamp: Date.now()
+    };
   } catch (error) {
-    console.error('❌ Hume AI processing error:', error);
-    return { 
-      provider: 'hume-ai', 
-      success: false, 
+    console.error('Hume AI processing error:', error);
+    return {
+      provider: 'hume-ai',
+      success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
-      timestamp,
-      latency: Date.now() - timestamp
+      timestamp: Date.now()
     };
   }
 }
 
 async function processAzureAudio(audioData: string, apiKey: string) {
-  const timestamp = Date.now();
-  
   try {
-    console.log('🎤 Azure Speech: Processing audio with cognitive services');
+    // Use Azure Speech-to-Text with sentiment analysis
+    const audioBuffer = Buffer.from(audioData, 'base64');
     
-    // Simulate Azure Speech Services processing time
-    await new Promise(resolve => setTimeout(resolve, 120 + Math.random() * 80));
-    
-    if (!apiKey) {
-      console.log('🎤 Azure Speech: Using realistic simulation (no API key)');
-      
-      // Generate Azure-style emotion analysis
-      const audioSize = audioData.length;
-      const confidence = 0.8 + Math.random() * 0.15;
-      
-      const voiceEmotions = {
-        timestamp,
-        prosody: {
-          arousal: Math.random() * 0.7 + 0.15,
-          valence: (Math.random() - 0.5) * 1.4,
-          intensity: Math.min(audioSize / 9000, 1),
-          pace: 0.4 + Math.random() * 0.4,
-          volume: 0.5 + Math.random() * 0.3,
-          pitch: 0.4 + Math.random() * 0.4,
-          stability: 0.65 + Math.random() * 0.25
-        },
-        voiceEmotions: {
-          confidence,
-          excitement: Math.max(0, Math.random() * 0.8),
-          stress: Math.max(0, Math.random() * 0.6),
-          fatigue: Math.max(0, Math.random() * 0.4),
-          engagement: Math.max(0.15, confidence * 0.9),
-          uncertainty: Math.max(0, 0.4 - confidence * 0.3),
-          authenticity: confidence * 0.95
-        },
-        provider: 'azure',
-        confidence,
-        rawData: { 
-          simulation: true, 
-          audioSize, 
-          cognitiveService: 'speech-emotion',
-          processingTime: Date.now() - timestamp 
-        }
-      };
-      
-      return { 
-        provider: 'azure', 
-        success: true, 
-        voiceEmotions,
-        timestamp,
-        latency: Date.now() - timestamp
-      };
+    // First get speech-to-text
+    const speechResponse = await fetch('https://eastus.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=en-US&format=detailed', {
+      method: 'POST',
+      headers: {
+        'Ocp-Apim-Subscription-Key': apiKey,
+        'Content-Type': 'audio/wav'
+      },
+      body: audioBuffer
+    });
+
+    if (!speechResponse.ok) {
+      throw new Error(`Azure Speech API error: ${speechResponse.status}`);
     }
     
-    // TODO: Real Azure Speech Services API integration would go here
-    throw new Error('Azure Speech API not configured - this will trigger fallback');
+    const speechResult = await speechResponse.json();
+    const recognizedText = speechResult.DisplayText || '';
     
+    // Then analyze sentiment using Text Analytics
+    const sentimentResponse = await fetch('https://eastus.api.cognitive.microsoft.com/text/analytics/v3.1/sentiment', {
+      method: 'POST',
+      headers: {
+        'Ocp-Apim-Subscription-Key': apiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        documents: [{
+          id: '1',
+          language: 'en',
+          text: recognizedText || 'neutral text'
+        }]
+      })
+    });
+    
+    let sentimentResult = { documents: [{ sentiment: 'neutral', confidenceScores: { positive: 0.5, neutral: 0.5, negative: 0.0 } }] };
+    if (sentimentResponse.ok) {
+      sentimentResult = await sentimentResponse.json();
+    }
+    
+    const sentiment = sentimentResult.documents[0];
+    const confidence = Math.max(
+      sentiment.confidenceScores.positive,
+      sentiment.confidenceScores.neutral,
+      sentiment.confidenceScores.negative
+    );
+    
+    // Convert Azure sentiment to voice emotions
+    const arousal = sentiment.sentiment === 'positive' ? 0.5 : (sentiment.sentiment === 'negative' ? -0.3 : 0);
+    const valence = sentiment.confidenceScores.positive - sentiment.confidenceScores.negative;
+    
+    const voiceEmotions = {
+      timestamp: Date.now(),
+      prosody: {
+        arousal,
+        valence,
+        intensity: confidence,
+        pace: 0.5,
+        volume: 0.6,
+        pitch: valence * 0.3 + 0.5,
+        stability: confidence
+      },
+      voiceEmotions: {
+        confidence: confidence,
+        excitement: sentiment.confidenceScores.positive * 0.8,
+        stress: sentiment.confidenceScores.negative * 0.7,
+        fatigue: 0.2,
+        engagement: confidence,
+        uncertainty: 1 - confidence,
+        authenticity: 0.85
+      },
+      provider: 'azure',
+      confidence: confidence,
+      rawData: { speech: speechResult, sentiment: sentimentResult }
+    };
+    
+    return {
+      provider: 'azure',
+      success: true,
+      voiceEmotions,
+      timestamp: Date.now()
+    };
   } catch (error) {
-    console.error('❌ Azure Speech processing error:', error);
-    return { 
-      provider: 'azure', 
-      success: false, 
+    console.error('Azure processing error:', error);
+    return {
+      provider: 'azure',
+      success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
-      timestamp,
-      latency: Date.now() - timestamp
+      timestamp: Date.now()
     };
   }
 }
 
 async function processGoogleAudio(audioData: string, apiKey: string) {
-  const timestamp = Date.now();
-  
   try {
-    console.log('🎤 Google Cloud Speech: Processing audio with ML models');
-    
-    // Simulate Google Cloud Speech processing time
-    await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 60));
-    
-    if (!apiKey) {
-      console.log('🎤 Google Cloud Speech: Using realistic simulation (no API key)');
-      
-      // Generate Google-style emotion analysis
-      const audioSize = audioData.length;
-      const confidence = 0.75 + Math.random() * 0.2;
-      
-      const voiceEmotions = {
-        timestamp,
-        prosody: {
-          arousal: Math.random() * 0.6 + 0.2,
-          valence: (Math.random() - 0.5) * 1.2,
-          intensity: Math.min(audioSize / 7000, 1),
-          pace: 0.3 + Math.random() * 0.5,
-          volume: 0.4 + Math.random() * 0.4,
-          pitch: 0.35 + Math.random() * 0.45,
-          stability: 0.7 + Math.random() * 0.2
+    // Use Google Cloud Speech-to-Text
+    const speechResponse = await fetch(`https://speech.googleapis.com/v1/speech:recognize?key=${apiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        config: {
+          encoding: 'LINEAR16',
+          sampleRateHertz: 16000,
+          languageCode: 'en-US',
+          enableAutomaticPunctuation: true
         },
-        voiceEmotions: {
-          confidence,
-          excitement: Math.max(0, Math.random() * 0.7),
-          stress: Math.max(0, Math.random() * 0.5),
-          fatigue: Math.max(0, Math.random() * 0.35),
-          engagement: Math.max(0.1, confidence * 0.85),
-          uncertainty: Math.max(0, 0.35 - confidence * 0.25),
-          authenticity: confidence * 0.9
-        },
-        provider: 'google-cloud',
-        confidence,
-        rawData: { 
-          simulation: true, 
-          audioSize, 
-          mlModel: 'speech-emotion-v2',
-          processingTime: Date.now() - timestamp 
+        audio: {
+          content: audioData
         }
-      };
-      
-      return { 
-        provider: 'google-cloud', 
-        success: true, 
-        voiceEmotions,
-        timestamp,
-        latency: Date.now() - timestamp
-      };
+      })
+    });
+
+    if (!speechResponse.ok) {
+      throw new Error(`Google Cloud Speech API error: ${speechResponse.status}`);
+    }
+
+    const speechResult = await speechResponse.json();
+    const transcript = speechResult.results?.[0]?.alternatives?.[0]?.transcript || '';
+    const confidence = speechResult.results?.[0]?.alternatives?.[0]?.confidence || 0.5;
+    
+    // Use Google Cloud Natural Language for sentiment
+    const sentimentResponse = await fetch(`https://language.googleapis.com/v1/documents:analyzeSentiment?key=${apiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        document: {
+          type: 'PLAIN_TEXT',
+          content: transcript || 'neutral text'
+        }
+      })
+    });
+    
+    let sentimentResult = { documentSentiment: { score: 0, magnitude: 0.5 } };
+    if (sentimentResponse.ok) {
+      sentimentResult = await sentimentResponse.json();
     }
     
-    // TODO: Real Google Cloud Speech API integration would go here
-    throw new Error('Google Cloud Speech API not configured - this will trigger fallback');
+    const sentiment = sentimentResult.documentSentiment;
+    const arousal = sentiment.magnitude * 0.5; // Magnitude indicates emotional intensity
+    const valence = sentiment.score; // Score indicates positive/negative
     
+    const voiceEmotions = {
+      timestamp: Date.now(),
+      prosody: {
+        arousal,
+        valence,
+        intensity: sentiment.magnitude,
+        pace: 0.5,
+        volume: 0.6,
+        pitch: valence * 0.3 + 0.5,
+        stability: confidence
+      },
+      voiceEmotions: {
+        confidence: confidence,
+        excitement: Math.max(0, sentiment.score * sentiment.magnitude),
+        stress: Math.max(0, -sentiment.score * sentiment.magnitude),
+        fatigue: 0.2,
+        engagement: confidence,
+        uncertainty: 1 - confidence,
+        authenticity: 0.8
+      },
+      provider: 'google-cloud',
+      confidence: confidence,
+      rawData: { speech: speechResult, sentiment: sentimentResult }
+    };
+    
+    return {
+      provider: 'google-cloud',
+      success: true,
+      voiceEmotions,
+      timestamp: Date.now()
+    };
   } catch (error) {
-    console.error('❌ Google Cloud Speech processing error:', error);
-    return { 
-      provider: 'google-cloud', 
-      success: false, 
+    console.error('Google Cloud processing error:', error);
+    return {
+      provider: 'google-cloud',
+      success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
-      timestamp,
-      latency: Date.now() - timestamp
+      timestamp: Date.now()
     };
   }
 }
 
 async function startProviderStream(provider: string, sessionId: string, apiKey: string) {
-  // Implementation here - simplified for clean compilation
-  return { success: true, sessionId, provider, message: 'Stream started', timestamp: Date.now() };
+  try {
+    // Create WebSocket connection for real-time streaming
+    let providerWsUrl: string;
+    let providerConfig: any = {};
+    
+    switch (provider) {
+      case 'assemblyai':
+        // Get AssemblyAI real-time token
+        const assemblyResponse = await fetch('https://api.assemblyai.com/v2/realtime/token', {
+          method: 'POST',
+          headers: {
+            'Authorization': apiKey,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            expires_in: 3600,
+            sample_rate: 16000
+          })
+        });
+        const assemblyData = await assemblyResponse.json();
+        providerWsUrl = `wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&token=${assemblyData.token}`;
+        break;
+        
+      case 'hume-ai':
+        providerWsUrl = `wss://api.hume.ai/v0/stream/voice?apikey=${apiKey}`;
+        providerConfig = {
+          models: {
+            prosody: {
+              granularity: "utterance"
+            }
+          }
+        };
+        break;
+        
+      case 'azure':
+        // Get Azure access token
+        const azureTokenResponse = await fetch('https://eastus.api.cognitive.microsoft.com/sts/v1.0/issuetoken', {
+          method: 'POST',
+          headers: {
+            'Ocp-Apim-Subscription-Key': apiKey,
+            'Content-Type': 'application/x-www-form-urlencoded'
+          }
+        });
+        const azureToken = await azureTokenResponse.text();
+        providerWsUrl = `wss://eastus.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?format=simple&language=en-US&X-ConnectionId=${sessionId}`;
+        providerConfig = { token: azureToken };
+        break;
+        
+      case 'google-cloud':
+        providerWsUrl = `wss://speech.googleapis.com/v1/speech:streamingrecognize?key=${apiKey}`;
+        providerConfig = {
+          streamingConfig: {
+            config: {
+              encoding: 'LINEAR16',
+              sampleRateHertz: 16000,
+              languageCode: 'en-US',
+              enableAutomaticPunctuation: true
+            },
+            interimResults: true
+          }
+        };
+        break;
+        
+      default:
+        throw new Error(`Unsupported provider: ${provider}`);
+    }
+
+    // Store stream configuration
+    const streamConfig = {
+      provider,
+      sessionId,
+      wsUrl: providerWsUrl,
+      config: providerConfig,
+      startTime: Date.now(),
+      status: 'active',
+      apiKey // Stored securely on server only
+    };
+
+    activeStreams.set(sessionId, { provider, connection: streamConfig });
+
+    return {
+      success: true,
+      sessionId,
+      provider,
+      wsUrl: providerWsUrl,
+      config: providerConfig,
+      message: `${provider} stream started`,
+      timestamp: Date.now()
+    };
+  } catch (error) {
+    console.error(`Start stream error for ${provider}:`, error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: Date.now()
+    };
+  }
 }
 
 async function stopProviderStream(provider: string, sessionId: string) {
-  // Implementation here - simplified for clean compilation
-  return { success: true, sessionId, provider, message: 'Stream stopped', timestamp: Date.now() };
+  try {
+    // Close WebSocket connection if exists
+    const wsConnection = wsConnections.get(sessionId);
+    if (wsConnection) {
+      try {
+        wsConnection.ws.close();
+      } catch (err) {
+        console.warn('Error closing WebSocket:', err);
+      }
+      wsConnections.delete(sessionId);
+    }
+    
+    // Remove from active streams
+    const stream = activeStreams.get(sessionId);
+    if (stream) {
+      activeStreams.delete(sessionId);
+    }
+
+    return {
+      success: true,
+      sessionId,
+      provider,
+      message: `${provider} stream stopped`,
+      timestamp: Date.now()
+    };
+  } catch (error) {
+    console.error(`Stop stream error for ${provider}:`, error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: Date.now()
+    };
+  }
 }
 
 async function getProviderStreamStatus(provider: string, sessionId: string) {
-  // Implementation here - simplified for clean compilation
-  return { success: true, sessionId, provider, status: 'active', timestamp: Date.now() };
+  try {
+    const stream = activeStreams.get(sessionId);
+    
+    return {
+      success: true,
+      sessionId,
+      provider,
+      isActive: !!stream,
+      status: stream ? 'active' : 'inactive',
+      timestamp: Date.now()
+    };
+  } catch (error) {
+    console.error(`Get stream status error for ${provider}:`, error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: Date.now()
+    };
+  }
 }
 
+// Helper function to route audio processing to correct provider
 async function processProviderAudio(provider: string, audioData: string, apiKey: string) {
   switch (provider) {
     case 'assemblyai':
@@ -1576,3 +1398,4 @@ async function processProviderAudio(provider: string, audioData: string, apiKey:
       throw new Error(`Unsupported provider: ${provider}`);
   }
 }
+

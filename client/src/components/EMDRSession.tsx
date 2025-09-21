@@ -17,17 +17,29 @@ import {
   Brain,
   AlertTriangle,
   Lightbulb,
-  CheckCircle
+  CheckCircle,
+  Activity,
+  Waves,
+  Eye
 } from "lucide-react";
 import BilateralStimulation, { BilateralStimulationRef } from "./BilateralStimulation";
 import EmotionDisplay from "./emotion/EmotionDisplay";
 import { AITherapist } from "./ai/AITherapist";
+
+// === REVOLUTIONARY MULTIMODAL EMOTION SYSTEM ===
+import { 
+  unifiedEmotionService, 
+  type UnifiedEmotionConfig,
+  type EmotionServiceStatus
+} from '@/services/emotion/emotionService';
+
 import type { 
   SessionParticipant, 
   EMDRPhase, 
   EmotionData,
   PersonalizedRecommendation,
-  CrisisDetection
+  CrisisDetection,
+  VoiceAnalysisStatus
 } from '@/../../shared/types';
 
 // Types are now imported from shared/types.ts
@@ -40,6 +52,46 @@ export default function EMDRSession() {
   const [emotionHistory, setEmotionHistory] = useState<EmotionData[]>([]);
   const emotionSaveIntervalRef = useRef<number | null>(null);
   const lastSavedEmotionsRef = useRef<EmotionData | null>(null);
+  
+  // === REVOLUTIONARY MULTIMODAL EMOTION STATE ===
+  const [emotionServiceStatus, setEmotionServiceStatus] = useState<EmotionServiceStatus | null>(null);
+  const [isMultimodalActive, setIsMultimodalActive] = useState(false);
+  const [voiceRecordingEnabled, setVoiceRecordingEnabled] = useState(false);
+  const [emotionMode, setEmotionMode] = useState<'face-only' | 'voice-only' | 'multimodal' | 'auto'>('auto');
+  const videoElementRef = useRef<HTMLVideoElement>(null);
+  
+  // === REVOLUTIONARY LIVE TELEMETRY & PROVIDER HEALTH ===
+  const [voiceAnalysisStatus, setVoiceAnalysisStatus] = useState<VoiceAnalysisStatus | null>(null);
+  const [providerHealth, setProviderHealth] = useState<Map<string, any>>(new Map());
+  const [currentProvider, setCurrentProvider] = useState<string>('assemblyai');
+  const [providerSwitchHistory, setProviderSwitchHistory] = useState<Array<{oldProvider: string, newProvider: string, timestamp: number, reason: string}>>([]);
+  const [liveTelemetry, setLiveTelemetry] = useState({
+    packetsReceived: 0,
+    providerFailures: 0,
+    currentLatency: 0,
+    uptime: 0,
+    connectionId: '',
+    authMethod: 'unknown',
+    lastUpdate: Date.now()
+  });
+  const [fusionMetrics, setFusionMetrics] = useState({
+    isActive: false,
+    strategy: 'weighted-average',
+    confidence: 0,
+    conflictRate: 0,
+    faceSources: 0,
+    voiceSources: 0,
+    lastFusion: 0
+  });
+  const [systemMetrics, setSystemMetrics] = useState({
+    totalPackets: 0,
+    lostPackets: 0,
+    avgLatency: 0,
+    jitter: 0,
+    uptime: 0,
+    reconnections: 0
+  });
+  const [showTelemetry, setShowTelemetry] = useState(true);
   
   // === Revolutionary AI Therapist State ===
   const [aiTherapistActive, setAiTherapistActive] = useState(true);
@@ -73,6 +125,272 @@ export default function EMDRSession() {
   
   // Ref for BLS component control
   const blsRef = useRef<BilateralStimulationRef>(null);
+
+  // === CRITICAL: Initialize Unified Emotion Service ===
+  useEffect(() => {
+    const initializeEmotionService = async () => {
+      try {
+        console.log('🔄 Initializing Unified Emotion Service...');
+        
+        // Initialize with video element for face recognition
+        await unifiedEmotionService.initialize(videoElementRef.current || undefined);
+        
+        // CRITICAL: Set up telemetry and status callbacks for live UI updates
+        unifiedEmotionService.onStatus((status: EmotionServiceStatus) => {
+          console.log('📊 Emotion service status update:', status);
+          setEmotionServiceStatus(status);
+          
+          // Update voice analysis status from the service
+          setVoiceAnalysisStatus(status.voice);
+          
+          // Update current provider
+          setCurrentProvider(status.voice.provider || 'unknown');
+          
+          // Update fusion metrics
+          setFusionMetrics({
+            isActive: status.fusion.enabled,
+            strategy: status.fusion.strategy,
+            confidence: status.fusion.averageConfidence,
+            conflictRate: status.fusion.conflictRate,
+            faceSources: status.face.enabled ? 1 : 0,
+            voiceSources: status.voice.isConnected ? 1 : 0,
+            lastFusion: Date.now()
+          });
+          
+          // Update system metrics
+          setSystemMetrics({
+            totalPackets: status.voice.streamHealth?.packetsReceived || 0,
+            lostPackets: status.voice.streamHealth?.packetsLost || 0,
+            avgLatency: status.voice.latency || 0,
+            jitter: status.voice.streamHealth?.jitter || 0,
+            uptime: status.performance?.currentLatency || 0,
+            reconnections: 0 // TODO: Track reconnections
+          });
+        });
+        
+        unifiedEmotionService.onError((error: string) => {
+          console.error('❌ Unified emotion service error:', error);
+          // Update status to show error state
+          setVoiceAnalysisStatus(prev => prev ? {
+            ...prev,
+            error: error,
+            isConnected: false
+          } : null);
+        });
+        
+        // CRITICAL: Set up provider change tracking for live telemetry
+        if (voiceRecognitionService.onProviderChanged) {
+          voiceRecognitionService.onProviderChanged((change: any) => {
+            console.log(`🔄 Provider change detected: ${change.oldProvider} → ${change.newProvider}`);
+            setCurrentProvider(change.newProvider);
+            setProviderSwitchHistory(prev => [
+              ...prev.slice(-4), // Keep last 5 entries
+              {
+                oldProvider: change.oldProvider,
+                newProvider: change.newProvider,
+                timestamp: change.timestamp,
+                reason: change.reason
+              }
+            ]);
+          });
+        }
+        
+        // Set up emotion callback to receive live emotion updates
+        unifiedEmotionService.onEmotion((emotion: EmotionData) => {
+          console.log('📊 New emotion data from unified service:', emotion);
+          setCurrentEmotions(emotion);
+          lastSavedEmotionsRef.current = emotion;
+          
+          // Update telemetry metrics from emotion data
+          if (emotion.sources?.voice?.provider) {
+            setCurrentProvider(emotion.sources.voice.provider);
+          }
+          setEmotionHistory(prev => [...prev.slice(-100), emotion]);
+          
+          // Adaptive BLS control with hysteresis and debounce
+          if (blsRef.current) {
+            const now = Date.now();
+            const timeSinceLastUpdate = now - lastBlsUpdateRef.current;
+            
+            // Apply debounce - only update if enough time has passed
+            if (timeSinceLastUpdate < blsDebounceTime) {
+              return;
+            }
+            
+            let newState = blsState;
+            
+            // Check transitions with hysteresis
+            if (blsState !== 'stressed') {
+              // Check if should enter stressed state
+              if (emotion.arousal > hysteresis.stress.enter.arousal && 
+                  emotion.valence < hysteresis.stress.enter.valence) {
+                newState = 'stressed';
+              }
+            } else {
+              // Check if should exit stressed state
+              if (emotion.arousal < hysteresis.stress.exit.arousal || 
+                  emotion.valence > hysteresis.stress.exit.valence) {
+                newState = 'normal';
+              }
+            }
+            
+            if (blsState !== 'low-engagement' && newState !== 'stressed') {
+              // Check if should enter low engagement state
+              if (emotion.arousal < hysteresis.lowEngagement.enter.arousal) {
+                newState = 'low-engagement';
+              }
+            } else if (blsState === 'low-engagement') {
+              // Check if should exit low engagement state
+              if (emotion.arousal > hysteresis.lowEngagement.exit.arousal) {
+                newState = 'normal';
+              }
+            }
+            
+            // Apply state changes if different
+            if (newState !== blsState) {
+              setBlsState(newState);
+              lastBlsUpdateRef.current = now;
+              
+              switch (newState) {
+                case 'stressed':
+                  blsRef.current.updateConfig({
+                    speed: 2, // Slow speed for calming
+                    color: '#60a5fa', // Calming blue
+                    pattern: 'horizontal'
+                  });
+                  break;
+                  
+                case 'low-engagement':
+                  blsRef.current.updateConfig({
+                    speed: 7, // Fast speed for stimulation
+                    color: '#fbbf24', // Bright yellow
+                    pattern: 'diagonal'
+                  });
+                  break;
+                  
+                case 'normal':
+                default:
+                  blsRef.current.updateConfig({
+                    speed: 5, // Medium speed
+                    color: '#34d399', // Balanced green
+                    pattern: 'horizontal'
+                  });
+                  break;
+              }
+            }
+          }
+        });
+        
+        // Set up status callback to track service health
+        unifiedEmotionService.onStatus((status: EmotionServiceStatus) => {
+          console.log('📊 Emotion service status update:', status);
+          setEmotionServiceStatus(status);
+          setIsMultimodalActive(status.isActive);
+          
+          // Update voice analysis status for telemetry
+          if (status.voice) {
+            setVoiceAnalysisStatus(status.voice);
+            
+            // Update system metrics
+            setSystemMetrics(prev => ({
+              ...prev,
+              totalPackets: status.voice.streamHealth?.packetsReceived || 0,
+              lostPackets: status.voice.streamHealth?.packetsLost || 0,
+              avgLatency: status.voice.latency || 0,
+              jitter: status.voice.streamHealth?.jitter || 0,
+              uptime: Date.now() - (status.voice.lastUpdate || Date.now())
+            }));
+          }
+          
+          // Update fusion metrics
+          if (status.fusion) {
+            setFusionMetrics(prev => ({
+              ...prev,
+              isActive: status.fusion.enabled,
+              strategy: status.fusion.strategy || 'weighted-average',
+              confidence: status.fusion.averageConfidence || 0,
+              conflictRate: status.fusion.conflictRate || 0,
+              lastFusion: Date.now()
+            }));
+          }
+        });
+        
+        // Set up error callback for debugging
+        unifiedEmotionService.onError((error: string) => {
+          console.error('❌ Emotion service error:', error);
+          setSystemMetrics(prev => ({ ...prev, reconnections: prev.reconnections + 1 }));
+          // TODO: Show user-friendly error message
+        });
+        
+        console.log('✅ Unified Emotion Service initialized successfully');
+        
+      } catch (error) {
+        console.error('❌ Failed to initialize Unified Emotion Service:', error);
+      }
+    };
+    
+    initializeEmotionService();
+    
+    // Cleanup on unmount
+    return () => {
+      unifiedEmotionService.destroy();
+    };
+  }, []); // Initialize once on mount
+
+  // === CRITICAL: Live Telemetry Updates ===
+  useEffect(() => {
+    const telemetryInterval = setInterval(() => {
+      try {
+        // Get fresh status and metrics from UnifiedEmotionService
+        const status = unifiedEmotionService.getStatus();
+        const metrics = unifiedEmotionService.getMetrics();
+        
+        // Update all telemetry state with fresh data
+        setEmotionServiceStatus(status);
+        setVoiceAnalysisStatus(status.voice);
+        setCurrentProvider(status.voice.provider || 'assemblyai');
+        
+        // Update provider health map
+        setProviderHealth(prevHealth => {
+          const newHealth = new Map(prevHealth);
+          newHealth.set(status.voice.provider || 'assemblyai', {
+            isHealthy: status.voice.isConnected,
+            latency: status.voice.latency,
+            packetsReceived: status.voice.streamHealth?.packetsReceived || 0,
+            lastUpdate: Date.now(),
+            errorRate: metrics.errorRate || 0
+          });
+          return newHealth;
+        });
+        
+        // Update fusion metrics with fresh data
+        setFusionMetrics({
+          isActive: status.fusion.enabled,
+          strategy: status.fusion.strategy,
+          confidence: status.fusion.averageConfidence,
+          conflictRate: status.fusion.conflictRate,
+          faceSources: status.face.enabled ? 1 : 0,
+          voiceSources: status.voice.isConnected ? 1 : 0,
+          lastFusion: Date.now()
+        });
+        
+        // Update system metrics with comprehensive data
+        setSystemMetrics({
+          totalPackets: status.voice.streamHealth?.packetsReceived || 0,
+          lostPackets: status.voice.streamHealth?.packetsLost || 0,
+          avgLatency: status.voice.latency || 0,
+          jitter: status.voice.streamHealth?.jitter || 0,
+          uptime: metrics.uptimeSeconds || 0,
+          reconnections: 0 // TODO: Track reconnections
+        });
+        
+      } catch (error) {
+        console.error('❌ Error updating telemetry:', error);
+      }
+    }, 1000); // Update every second for live telemetry
+    
+    return () => clearInterval(telemetryInterval);
+  }, [isMultimodalActive]);
 
   useEffect(() => {
     if (sessionActive) {
@@ -109,11 +427,47 @@ export default function EMDRSession() {
     console.log('BLS Metrics:', metrics);
   };
 
-  // Handle emotion updates from EmotionDisplay
+  // === MULTIMODAL EMOTION HANDLERS ===
+  
+  /**
+   * Toggle voice recording on/off
+   */
+  const toggleVoiceRecording = async () => {
+    try {
+      if (voiceRecordingEnabled) {
+        await unifiedEmotionService.stopRecognition();
+        console.log('🎤 Multimodal emotion recognition stopped');
+      } else {
+        await unifiedEmotionService.startRecognition();
+        console.log('🎤 Multimodal emotion recognition started');
+      }
+      setVoiceRecordingEnabled(!voiceRecordingEnabled);
+    } catch (error) {
+      console.error('Failed to toggle multimodal recognition:', error);
+      // TODO: Show user-friendly error toast
+    }
+  };
+  
+  /**
+   * Switch emotion recognition mode
+   */
+  const switchEmotionMode = async (newMode: 'face-only' | 'voice-only' | 'multimodal' | 'auto') => {
+    try {
+      await unifiedEmotionService.switchMode(newMode);
+      setEmotionMode(newMode);
+      console.log(`🔄 Switched to ${newMode} emotion recognition`);
+    } catch (error) {
+      console.error('Failed to switch emotion mode:', error);
+    }
+  };
+  
+  // Legacy handler for backward compatibility (now handled by unified service)
   const handleEmotionUpdate = (emotions: EmotionData) => {
+    console.log('📊 Legacy emotion update (now handled by unified service):', emotions);
+    // This is kept for compatibility but emotions now come from unified service
     setCurrentEmotions(emotions);
-    lastSavedEmotionsRef.current = emotions; // Update ref for stable saving
-    setEmotionHistory(prev => [...prev.slice(-100), emotions]); // Keep last 100 samples
+    lastSavedEmotionsRef.current = emotions;
+    setEmotionHistory(prev => [...prev.slice(-100), emotions]);
     
     // Adaptive BLS control with hysteresis and debounce
     if (blsRef.current && emotions) {
@@ -361,9 +715,92 @@ export default function EMDRSession() {
                   AI рекомендация
                 </Badge>
               )}
+              
+              {/* === REVOLUTIONARY MULTIMODAL STATUS === */}
+              {emotionServiceStatus && (
+                <>
+                  {/* Emotion Recognition Mode */}
+                  <Badge 
+                    variant={emotionServiceStatus.mode === 'multimodal' ? 'default' : 'secondary'} 
+                    className="font-medium flex items-center gap-1"
+                  >
+                    {emotionServiceStatus.mode === 'multimodal' && <Activity className="w-3 h-3" />}
+                    {emotionServiceStatus.mode === 'face-only' && <Eye className="w-3 h-3" />}
+                    {emotionServiceStatus.mode === 'voice-only' && <Waves className="w-3 h-3" />}
+                    {emotionServiceStatus.mode === 'fallback' && <AlertTriangle className="w-3 h-3" />}
+                    
+                    {emotionServiceStatus.mode === 'multimodal' && 'Мультимодальный'}
+                    {emotionServiceStatus.mode === 'face-only' && 'Только лицо'}
+                    {emotionServiceStatus.mode === 'voice-only' && 'Только голос'}
+                    {emotionServiceStatus.mode === 'fallback' && 'Резерв'}
+                  </Badge>
+                  
+                  {/* Voice Analysis Status */}
+                  {emotionServiceStatus.voice.isRecording && (
+                    <Badge variant="outline" className="font-medium flex items-center gap-1 animate-pulse">
+                      <Mic className="w-3 h-3 text-green-500" />
+                      Голос активен
+                    </Badge>
+                  )}
+                  
+                  {/* Fusion Quality Indicator */}
+                  {emotionServiceStatus.mode === 'multimodal' && (
+                    <Badge 
+                      variant="outline" 
+                      className={`font-medium flex items-center gap-1 ${
+                        emotionServiceStatus.fusion.averageConfidence > 0.7 
+                          ? 'text-green-600 border-green-300' 
+                          : emotionServiceStatus.fusion.averageConfidence > 0.5
+                          ? 'text-yellow-600 border-yellow-300'
+                          : 'text-red-600 border-red-300'
+                      }`}
+                    >
+                      <Activity className="w-3 h-3" />
+                      Качество: {Math.round(emotionServiceStatus.fusion.averageConfidence * 100)}%
+                    </Badge>
+                  )}
+                </>
+              )}
             </div>
             
             <div className="flex items-center space-x-2">
+              {/* === MULTIMODAL CONTROLS === */}
+              <div className="flex items-center space-x-1 border rounded-md p-1">
+                {/* Voice Recording Toggle */}
+                <Button
+                  variant={voiceRecordingEnabled ? "default" : "ghost"}
+                  size="sm"
+                  onClick={toggleVoiceRecording}
+                  data-testid="button-voice-toggle"
+                  className="h-7 px-2"
+                >
+                  {voiceRecordingEnabled ? (
+                    <Mic className="w-3 h-3 text-green-500" />
+                  ) : (
+                    <MicOff className="w-3 h-3" />
+                  )}
+                </Button>
+                
+                {/* Emotion Mode Selector */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    const modes: Array<'face-only' | 'voice-only' | 'multimodal' | 'auto'> = ['auto', 'multimodal', 'face-only', 'voice-only'];
+                    const currentIndex = modes.indexOf(emotionMode);
+                    const nextMode = modes[(currentIndex + 1) % modes.length];
+                    switchEmotionMode(nextMode);
+                  }}
+                  data-testid="button-emotion-mode"
+                  className="h-7 px-2 text-xs"
+                >
+                  {emotionMode === 'auto' && '🤖'}
+                  {emotionMode === 'multimodal' && '🎭'}
+                  {emotionMode === 'face-only' && '👁️'}
+                  {emotionMode === 'voice-only' && '🎤'}
+                </Button>
+              </div>
+              
               {/* Crisis Alert */}
               {crisisAlert && (
                 <Alert className="flex items-center p-2 border-red-500 bg-red-50 dark:bg-red-950">
@@ -516,6 +953,280 @@ export default function EMDRSession() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* === HEALTH/STATUS UI AND TELEMETRY PANEL === */}
+            {showTelemetry && (
+              <Card>
+                <CardHeader className="pb-4">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center space-x-2">
+                      <Activity className="w-5 h-5" />
+                      <span>System Telemetry & Health Status</span>
+                    </CardTitle>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => setShowTelemetry(false)}
+                      className="h-6 w-6 p-0"
+                    >
+                      ×
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Voice Analysis Status */}
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-medium flex items-center">
+                      <Waves className="w-4 h-4 mr-2" />
+                      Voice Analysis Status
+                    </h4>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Provider:</span>
+                        <Badge variant={voiceAnalysisStatus?.isConnected ? "default" : "secondary"} className="text-xs">
+                          {voiceAnalysisStatus?.provider || 'none'}
+                        </Badge>
+                      </div>
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Status:</span>
+                        <Badge variant={voiceAnalysisStatus?.isConnected ? "default" : "destructive"} className="text-xs">
+                          {voiceAnalysisStatus?.isConnected ? 'Connected' : 'Disconnected'}
+                        </Badge>
+                      </div>
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Latency:</span>
+                        <span className={`font-mono ${systemMetrics.avgLatency > 200 ? 'text-orange-500' : 'text-green-500'}`}>
+                          {systemMetrics.avgLatency.toFixed(0)}ms
+                        </span>
+                      </div>
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Packets:</span>
+                        <span className="font-mono text-blue-500">
+                          {systemMetrics.totalPackets}/{systemMetrics.lostPackets}
+                        </span>
+                      </div>
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Jitter:</span>
+                        <span className={`font-mono ${systemMetrics.jitter > 50 ? 'text-orange-500' : 'text-green-500'}`}>
+                          {systemMetrics.jitter.toFixed(1)}ms
+                        </span>
+                      </div>
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Recording:</span>
+                        <Badge variant={voiceAnalysisStatus?.isRecording ? "default" : "secondary"} className="text-xs">
+                          {voiceAnalysisStatus?.isRecording ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Fusion Status */}
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-medium flex items-center">
+                      <Eye className="w-4 h-4 mr-2" />
+                      Multimodal Fusion Status
+                    </h4>
+                    <div className="grid grid-cols-1 gap-2 text-xs">
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Fusion Mode:</span>
+                        <Badge variant={fusionMetrics.isActive ? "default" : "secondary"} className="text-xs">
+                          {emotionMode}
+                        </Badge>
+                      </div>
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Strategy:</span>
+                        <span className="font-mono text-purple-500">{fusionMetrics.strategy}</span>
+                      </div>
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Confidence:</span>
+                        <span className={`font-mono ${fusionMetrics.confidence > 0.8 ? 'text-green-500' : fusionMetrics.confidence > 0.6 ? 'text-yellow-500' : 'text-red-500'}`}>
+                          {(fusionMetrics.confidence * 100).toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Face/Voice Sources:</span>
+                        <span className="font-mono text-indigo-500">
+                          {emotionServiceStatus?.face?.cameraConnected ? '✓' : '✗'}/
+                          {emotionServiceStatus?.voice?.isConnected ? '✓' : '✗'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Live Telemetry Metrics */}
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-medium flex items-center">
+                      <Activity className="w-4 h-4 mr-2" />
+                      Live WebSocket Telemetry
+                    </h4>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Current Provider:</span>
+                        <Badge variant="default" className="text-xs">
+                          {currentProvider}
+                        </Badge>
+                      </div>
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Packets Received:</span>
+                        <span className="font-mono text-green-500">{liveTelemetry.packetsReceived}</span>
+                      </div>
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Provider Failures:</span>
+                        <span className={`font-mono ${liveTelemetry.providerFailures > 0 ? 'text-orange-500' : 'text-green-500'}`}>
+                          {liveTelemetry.providerFailures}
+                        </span>
+                      </div>
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Auth Method:</span>
+                        <Badge variant={liveTelemetry.authMethod === 'jwt' ? 'default' : 'secondary'} className="text-xs">
+                          {liveTelemetry.authMethod}
+                        </Badge>
+                      </div>
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Connection Uptime:</span>
+                        <span className="font-mono text-blue-500">
+                          {Math.floor(liveTelemetry.uptime / 1000)}s
+                        </span>
+                      </div>
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Connection ID:</span>
+                        <span className="font-mono text-xs text-gray-500">
+                          {liveTelemetry.connectionId.slice(-8)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Provider Switch History */}
+                  {providerSwitchHistory.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-medium flex items-center">
+                        <Waves className="w-4 h-4 mr-2" />
+                        Provider Fallback History
+                      </h4>
+                      <div className="space-y-1 max-h-32 overflow-y-auto">
+                        {providerSwitchHistory.map((switch_, idx) => (
+                          <div key={idx} className="flex items-center justify-between p-2 bg-muted rounded text-xs">
+                            <span>
+                              {switch_.oldProvider} → {switch_.newProvider}
+                            </span>
+                            <div className="flex items-center space-x-2">
+                              <Badge variant="outline" className="text-xs">
+                                {switch_.reason}
+                              </Badge>
+                              <span className="text-gray-500">
+                                {new Date(switch_.timestamp).toLocaleTimeString()}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Test Controls */}
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-medium flex items-center">
+                      <Settings className="w-4 h-4 mr-2" />
+                      Testing Controls
+                    </h4>
+                    <div className="flex space-x-2">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={async () => {
+                          try {
+                            const response = await fetch('/api/voice/force-failure', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ sessionId })
+                            });
+                            if (response.ok) {
+                              console.log('🧪 Forced provider failure simulation triggered');
+                            }
+                          } catch (error) {
+                            console.error('Failed to trigger provider failure:', error);
+                          }
+                        }}
+                        data-testid="button-force-failure"
+                      >
+                        🧪 Force Provider Failure
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={async () => {
+                          try {
+                            const response = await fetch('/api/voice/health');
+                            const health = await response.json();
+                            console.log('📊 Voice WebSocket health:', health);
+                          } catch (error) {
+                            console.error('Failed to get health status:', error);
+                          }
+                        }}
+                        data-testid="button-health-check"
+                      >
+                        📊 Health Check
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* System Performance */}
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-medium flex items-center">
+                      <CheckCircle className="w-4 h-4 mr-2" />
+                      System Performance
+                    </h4>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Uptime:</span>
+                        <span className="font-mono text-green-500">
+                          {Math.floor(sessionTime / 60)}m {sessionTime % 60}s
+                        </span>
+                      </div>
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Reconnects:</span>
+                        <span className={`font-mono ${systemMetrics.reconnections > 0 ? 'text-orange-500' : 'text-green-500'}`}>
+                          {systemMetrics.reconnections}
+                        </span>
+                      </div>
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>BLS State:</span>
+                        <Badge variant={blsState === 'normal' ? "default" : blsState === 'stressed' ? "destructive" : "secondary"} className="text-xs">
+                          {blsState}
+                        </Badge>
+                      </div>
+                      <div className="flex justify-between p-2 bg-muted rounded">
+                        <span>Emotions:</span>
+                        <span className="font-mono text-purple-500">{emotionHistory.length}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Quick Actions */}
+                  <div className="flex space-x-2 pt-2 border-t">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => setEmotionMode(emotionMode === 'auto' ? 'face-only' : 'auto')}
+                      className="text-xs"
+                      data-testid="button-toggle-emotion-mode"
+                    >
+                      Toggle Mode
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => setShowTelemetry(false)}
+                      className="text-xs"
+                      data-testid="button-hide-telemetry"
+                    >
+                      Hide Panel
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           {/* Session Sidebar */}
