@@ -794,10 +794,10 @@ export default function EMDRSession() {
                   data-testid="button-emotion-mode"
                   className="h-7 px-2 text-xs"
                 >
-                  {emotionMode === 'auto' && '🤖'}
-                  {emotionMode === 'multimodal' && '🎭'}
-                  {emotionMode === 'face-only' && '👁️'}
-                  {emotionMode === 'voice-only' && '🎤'}
+                  {emotionMode === 'auto' && 'AUTO'}
+                  {emotionMode === 'multimodal' && 'MULTI'}
+                  {emotionMode === 'face-only' && 'FACE'}
+                  {emotionMode === 'voice-only' && 'VOICE'}
                 </Button>
               </div>
               

@@ -73,6 +73,11 @@ export interface IStorage {
   // Breakthrough Moments
   createBreakthroughMoment(breakthrough: InsertBreakthroughMoment): Promise<BreakthroughMoment>;
   getBreakthroughMoments(sessionId: string): Promise<BreakthroughMoment[]>;
+  getAllBreakthroughs(): Promise<BreakthroughMoment[]>;
+  
+  // Analytics Support Methods
+  getAllPatients(): Promise<User[]>;
+  getRecentSnapshots(limit?: number): Promise<SessionMemorySnapshot[]>;
   getBreakthroughsByPatient(patientId: string, limit?: number): Promise<BreakthroughMoment[]>;
   
   // Memory Insights
@@ -918,6 +923,29 @@ export class DbStorage implements IStorage {
       .where(eq(emotionalPatternAnalysis.id, id))
       .returning();
     return result[0];
+  }
+
+  // Analytics Support Methods
+  async getAllPatients(): Promise<User[]> {
+    const result = await db.select()
+      .from(users)
+      .orderBy(desc(users.createdAt));
+    return result;
+  }
+
+  async getRecentSnapshots(limit: number = 100): Promise<SessionMemorySnapshot[]> {
+    const result = await db.select()
+      .from(sessionMemorySnapshots)
+      .orderBy(desc(sessionMemorySnapshots.createdAt))
+      .limit(limit);
+    return result;
+  }
+
+  async getAllBreakthroughs(): Promise<BreakthroughMoment[]> {
+    const result = await db.select()
+      .from(breakthroughMoments)
+      .orderBy(desc(breakthroughMoments.timestamp));
+    return result;
   }
   
   async deactivatePattern(id: string): Promise<void> {

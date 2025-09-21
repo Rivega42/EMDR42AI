@@ -13,6 +13,7 @@ import TherapistSettingsPage from "@/pages/TherapistSettingsPage";
 import AdminSettingsPage from "@/pages/AdminSettingsPage";
 import PatientSessionPage from "@/pages/PatientSessionPage";
 import TherapistSessionPage from "@/pages/TherapistSessionPage";
+import AnalyticsPage from "@/pages/AnalyticsPage";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -22,6 +23,7 @@ function Router() {
       <Route path="/patient" component={PatientDashboardPage} />
       <Route path="/therapist" component={TherapistDashboardPage} />
       <Route path="/admin" component={AdminDashboardPage} />
+      <Route path="/analytics" component={AnalyticsPage} />
       <Route path="/session" component={EMDRSessionPage} />
       <Route path="/patient/settings" component={PatientSettingsPage} />
       <Route path="/therapist/settings" component={TherapistSettingsPage} />
