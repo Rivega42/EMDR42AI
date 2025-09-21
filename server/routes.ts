@@ -542,6 +542,9 @@ function validateSessionOwnership(req: Request, res: Response, next: NextFunctio
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // CRITICAL FIX: Setup authentication middleware first
+  await setupAuth(app);
+  
   // AI Therapist endpoints - secure backend-only processing with authentication
   
   // Analyze emotions and generate therapeutic response
@@ -1586,13 +1589,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Save emotion capture with validation and rate limiting
   app.post("/api/emotions/capture", async (req, res) => {
     try {
+      // Demo mode: allow unauthenticated users with demo prefix
+      let isDemo = false;
+      let userId = req.session?.user?.id;
+      
       if (!req.session?.user) {
-        return res.status(401).json({ 
-          error: "Authentication required. Please log in to capture emotions." 
-        });
+        // Allow demo mode for emotion capture
+        isDemo = true;
+        userId = 'demo-user-' + req.ip.replace(/\./g, '-');
+        console.log('🎭 Demo mode emotion capture for:', userId);
       }
       
-      const rateLimitKey = `${req.session.user.id}_${req.ip}`;
+      const rateLimitKey = `${userId}_${req.ip}`;
       if (!checkRateLimit(rateLimitKey)) {
         return res.status(429).json({ 
           error: "Rate limit exceeded. Maximum 20 requests per minute." 
@@ -1616,10 +1624,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const { emotionData, sessionId } = validatedData;
-      const patientId = validatedData.patientId || req.session.user.id;
+      const patientId = validatedData.patientId || userId;
       const phase = validatedData.phase || 'desensitization';
       
-      if (req.session.user.role === 'patient' && 
+      // Skip role check for demo users
+      if (!isDemo && req.session?.user?.role === 'patient' && 
           patientId !== req.session.user.id) {
         return res.status(403).json({ 
           error: "Access denied: cannot capture emotions for other patients" 

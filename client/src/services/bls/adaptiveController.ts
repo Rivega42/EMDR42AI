@@ -10,6 +10,12 @@ import type {
   EMDRPhase,
   EmotionalState98 
 } from '@/../../shared/types';
+import { 
+  createDefaultBLSAudioConfig,
+  createDefaultBLSHapticsConfig,
+  createDefaultBLS3DConfig,
+  createDefaultBLSTransitionConfig 
+} from '@/../../shared/types';
 import { affects98, calculateAffects, getDominantAffect } from '@/../../shared/emotionAffects';
 
 export interface AdaptiveRule {
@@ -217,8 +223,8 @@ export class AdaptiveController {
         speed: 1,
         pattern: 'horizontal',
         color: '#1e293b', // Dark grounding
-        audio: { enabled: false },
-        haptics: { 
+        audio: createDefaultBLSAudioConfig({ enabled: false }),
+        haptics: createDefaultBLSHapticsConfig({ 
           enabled: true, 
           pattern: 'breathing', 
           intensity: 0.1, 
@@ -226,8 +232,8 @@ export class AdaptiveController {
           interval: 8000,
           syncWithMovement: false,
           syncWithAudio: false
-        },
-        rendering3D: { enabled: false } // Fallback to 2D
+        }),
+        rendering3D: createDefaultBLS3DConfig({ enabled: false }) // Fallback to 2D
       },
       priority: 100,
       therapeutic: 'CRISIS: Extreme distress - minimal stimulation, basic grounding, emergency stabilization'
@@ -240,14 +246,14 @@ export class AdaptiveController {
         speed: 1,
         pattern: 'circle',
         color: '#475569', // Stable gray-blue
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'binaural-beats',
           binauralType: 'alpha',
           binauralFrequency: 8,
           volume: 0.3,
           spatialAudio: false
-        }
+        })
       },
       priority: 95,
       therapeutic: 'Panic attack detected - slow circles with deep alpha waves for immediate stabilization'
@@ -260,13 +266,13 @@ export class AdaptiveController {
         speed: 2,
         pattern: 'horizontal',
         color: '#60a5fa', // Calming blue
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'nature-sounds',
           volume: 0.3,
           spatialAudio: false
-        },
-        haptics: { enabled: false }
+        }),
+        haptics: createDefaultBLSHapticsConfig({ enabled: false })
       },
       priority: 90,
       therapeutic: 'Severe trauma activation - basic bilateral with nature sounds for safety'
@@ -284,17 +290,17 @@ export class AdaptiveController {
         speed: 3,
         pattern: 'horizontal', // Linear movement for discharge
         color: '#64748b', // Cool gray to calm
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'white-noise',
           volume: 0.4
-        },
-        haptics: {
+        }),
+        haptics: createDefaultBLSHapticsConfig({
           enabled: true,
           pattern: 'wave',
           intensity: 0.3,
           syncWithMovement: true
-        }
+        })
       },
       priority: 80,
       therapeutic: 'Anger discharge - linear movement with white noise for emotional regulation'
@@ -308,19 +314,19 @@ export class AdaptiveController {
         pattern: 'spiral3d',
         color: '#f59e0b', // Energetic orange
         secondaryColor: '#dc2626', // Red accent
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'binaural-beats',
           binauralType: 'beta',
           binauralFrequency: 20,
           volume: 0.7,
           spatialAudio: true
-        },
-        rendering3D: {
+        }),
+        rendering3D: createDefaultBLS3DConfig({
           lighting: 'dramatic',
           particleEffects: true,
           bloomEffect: true
-        }
+        })
       },
       priority: 40,
       therapeutic: 'High positive energy - dynamic 3D patterns to channel and focus excitement'
@@ -333,20 +339,20 @@ export class AdaptiveController {
         speed: 2,
         pattern: 'circle',
         color: '#3b82f6', // Calming blue
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'binaural-beats',
           binauralType: 'alpha',
           binauralFrequency: 10,
           volume: 0.4
-        },
-        haptics: {
+        }),
+        haptics: createDefaultBLSHapticsConfig({
           enabled: true,
           pattern: 'breathing',
           intensity: 0.2,
           duration: 4000,
           interval: 6000
-        }
+        })
       },
       priority: 75,
       therapeutic: 'Anxiety regulation - slow circles with breathing pattern for grounding'
@@ -365,16 +371,16 @@ export class AdaptiveController {
         pattern: 'helix3d', // Upward spiral
         color: '#f97316', // Warm orange
         secondaryColor: '#fbbf24', // Gold
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'sacred-geometry',
           volume: 0.5
-        },
-        haptics: {
+        }),
+        haptics: createDefaultBLSHapticsConfig({
           enabled: true,
           pattern: 'heartbeat',
           intensity: 0.4
-        }
+        })
       },
       priority: 70,
       therapeutic: 'Depression support - upward helix with warm colors for gentle activation'
@@ -387,18 +393,18 @@ export class AdaptiveController {
         speed: 6,
         pattern: 'lissajous3d',
         color: '#8b5cf6', // Engaging purple
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'binaural-beats',
           binauralType: 'beta',
           binauralFrequency: 15
-        },
-        haptics: {
+        }),
+        haptics: createDefaultBLSHapticsConfig({
           enabled: true,
           pattern: 'pulse',
           intensity: 0.5,
           syncWithMovement: true
-        }
+        })
       },
       priority: 60,
       therapeutic: 'Engagement activation - complex patterns with beta waves for alertness'
@@ -411,16 +417,16 @@ export class AdaptiveController {
         speed: 3,
         pattern: 'wave3d',
         color: '#10b981', // Peaceful green
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'nature-sounds',
           volume: 0.3
-        },
-        haptics: {
+        }),
+        haptics: createDefaultBLSHapticsConfig({
           enabled: true,
           pattern: 'breathing',
           intensity: 0.2
-        }
+        })
       },
       priority: 30,
       therapeutic: 'Peaceful state - maintaining calm with gentle wave patterns'
@@ -439,16 +445,16 @@ export class AdaptiveController {
         pattern: 'butterfly3d',
         color: '#fbbf24', // Bright yellow
         secondaryColor: '#f59e0b', // Orange
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'sacred-geometry',
           volume: 0.6
-        },
-        rendering3D: {
+        }),
+        rendering3D: createDefaultBLS3DConfig({
           lighting: 'dramatic',
           bloomEffect: true,
           particleEffects: true
-        }
+        })
       },
       priority: 35,
       therapeutic: 'Joy celebration - beautiful butterfly patterns to amplify positive emotions'
@@ -462,16 +468,16 @@ export class AdaptiveController {
         pattern: 'DNA3d',
         color: '#ec4899', // Love pink
         secondaryColor: '#a855f7', // Purple
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'singing-bowls',
           volume: 0.5
-        },
-        haptics: {
+        }),
+        haptics: createDefaultBLSHapticsConfig({
           enabled: true,
           pattern: 'heartbeat',
           intensity: 0.4
-        }
+        })
       },
       priority: 25,
       therapeutic: 'Love and connection - DNA helix with heart resonance'
@@ -485,12 +491,12 @@ export class AdaptiveController {
         pattern: 'cube3d',
         color: '#7c3aed', // Royal purple
         secondaryColor: '#f59e0b', // Gold
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'binaural-beats',
           binauralType: 'beta',
           binauralFrequency: 18
-        }
+        })
       },
       priority: 30,
       therapeutic: 'Confidence building - structured cube patterns with beta waves'
@@ -504,11 +510,11 @@ export class AdaptiveController {
         pattern: 'helix3d',
         color: '#f59e0b', // Gold
         secondaryColor: '#dc2626', // Red energy
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'sacred-geometry',
           volume: 0.6
-        }
+        })
       },
       priority: 20,
       therapeutic: 'Hope and determination - upward helix for positive momentum'
@@ -527,16 +533,16 @@ export class AdaptiveController {
         pattern: 'spiral3d',
         color: '#f97316', // Warm orange for comfort
         secondaryColor: '#fbbf24', // Yellow hope
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'nature-sounds',
           volume: 0.4
-        },
-        haptics: {
+        }),
+        haptics: createDefaultBLSHapticsConfig({
           enabled: true,
           pattern: 'heartbeat',
           intensity: 0.3
-        }
+        })
       },
       priority: 65,
       therapeutic: 'Sadness comfort - gentle upward spirals with warm colors for healing'
@@ -550,15 +556,15 @@ export class AdaptiveController {
         pattern: 'infinity3d',
         color: '#10b981', // Healing green
         secondaryColor: '#3b82f6', // Calming blue
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'singing-bowls',
           volume: 0.4
-        },
-        rendering3D: {
+        }),
+        rendering3D: createDefaultBLS3DConfig({
           lighting: 'therapeutic',
           bloomEffect: true
-        }
+        })
       },
       priority: 55,
       therapeutic: 'Shame healing - infinity patterns for self-forgiveness and renewal'
@@ -571,22 +577,22 @@ export class AdaptiveController {
         speed: 2,
         pattern: 'circle',
         color: '#3b82f6', // Safe blue
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'binaural-beats',
           binauralType: 'alpha',
           binauralFrequency: 10,
           volume: 0.4
-        },
-        haptics: {
+        }),
+        haptics: createDefaultBLSHapticsConfig({
           enabled: true,
           pattern: 'breathing',
           intensity: 0.2
-        },
-        rendering3D: {
+        }),
+        rendering3D: createDefaultBLS3DConfig({
           shadows: false,
           particleEffects: false
-        }
+        })
       },
       priority: 80,
       therapeutic: 'Fear containment - safe circular patterns with alpha waves for calming'
@@ -599,11 +605,11 @@ export class AdaptiveController {
         speed: 4,
         pattern: 'horizontal',
         color: '#6b7280', // Neutral gray
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'white-noise',
           volume: 0.3
-        }
+        })
       },
       priority: 50,
       therapeutic: 'Disgust processing - neutral patterns for emotional detoxification'
@@ -621,12 +627,12 @@ export class AdaptiveController {
         speed: 6,
         pattern: 'lissajous3d',
         color: '#8b5cf6', // Purple creativity
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'binaural-beats',
           binauralType: 'beta',
           binauralFrequency: 16
-        }
+        })
       },
       priority: 25,
       therapeutic: 'Curiosity engagement - complex patterns to enhance focused attention'
@@ -639,12 +645,12 @@ export class AdaptiveController {
         speed: 3,
         pattern: 'sphere3d',
         color: '#7c3aed', // Deep purple wisdom
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'binaural-beats',
           binauralType: 'theta',
           binauralFrequency: 6
-        }
+        })
       },
       priority: 40,
       therapeutic: 'Deep contemplation - spherical wholeness with theta waves for insight'
@@ -657,17 +663,17 @@ export class AdaptiveController {
         speed: 5,
         pattern: 'lemniscate3d',
         color: '#f59e0b', // Bright orange
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'binaural-beats',
           binauralType: 'alpha',
           binauralFrequency: 12
-        },
-        transitions: {
+        }),
+        transitions: createDefaultBLSTransitionConfig({
           enabled: true,
           duration: 3000,
           morphing: true
-        }
+        })
       },
       priority: 45,
       therapeutic: 'Surprise integration - figure-8 patterns for processing unexpected experiences'
@@ -680,18 +686,18 @@ export class AdaptiveController {
         speed: 6,
         pattern: 'cube3d',
         color: '#dc2626', // Alert red
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'binaural-beats',
           binauralType: 'theta',
           binauralFrequency: 5
-        },
-        haptics: {
+        }),
+        haptics: createDefaultBLSHapticsConfig({
           enabled: true,
           pattern: 'pulse',
           intensity: 0.6,
           syncWithMovement: true
-        }
+        })
       },
       priority: 85,
       therapeutic: 'Dissociation grounding - structured patterns with haptic feedback for reconnection'
@@ -709,14 +715,14 @@ export class AdaptiveController {
         speed: 5,
         pattern: 'lemniscate3d',
         color: '#3b82f6',
-        audio: {
+        audio: createDefaultBLSAudioConfig({
           enabled: true,
           audioType: 'binaural-beats',
           binauralType: 'alpha',
           binauralFrequency: 10,
           volume: 0.5,
           spatialAudio: true
-        }
+        })
       },
       priority: 50,
       therapeutic: 'Optimal processing window - balanced stimulation for effective integration'
@@ -760,7 +766,7 @@ export class AdaptiveController {
   private findApplicableRules(emotionData: EmotionData, phase: EMDRPhase): AdaptiveRule[] {
     const applicable: AdaptiveRule[] = [];
     
-    for (const rule of this.rules.values()) {
+    for (const rule of Array.from(this.rules.values())) {
       if (rule.condition(emotionData)) {
         applicable.push(rule);
       }

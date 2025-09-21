@@ -47,8 +47,8 @@ export class Renderer3D {
   private patternState: Map<string, any> = new Map();
   
   // Lighting and effects
-  private ambientLight: THREE.AmbientLight;
-  private directionalLight: THREE.DirectionalLight;
+  private ambientLight!: THREE.AmbientLight;
+  private directionalLight!: THREE.DirectionalLight;
   private particleSystem: THREE.Points | null = null;
 
   constructor(container: HTMLElement, config: BLS3DConfig) {

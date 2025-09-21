@@ -2,6 +2,27 @@
  * Shared TypeScript interfaces for EMDR42 platform
  */
 
+// Import database types from schema
+import type {
+  Session,
+  User,
+  SessionMemorySnapshot,
+  ProgressMetric,
+  SessionComparison,
+  BreakthroughMoment,
+  MemoryInsight,
+  EmotionalPatternAnalysis,
+  InsertSessionMemorySnapshot,
+  InsertProgressMetric,
+  InsertSessionComparison,
+  InsertBreakthroughMoment,
+  InsertMemoryInsight,
+  InsertEmotionalPatternAnalysis
+} from './schema';
+
+// Type aliases for compatibility
+export type EmotionalPattern = EmotionalPatternAnalysis;
+
 // EMDR Phase types - Complete 8-phase protocol
 export type EMDRPhase = 
   | 'preparation'      // Phase 1: Client preparation and stabilization
@@ -235,6 +256,100 @@ export interface BLSTransitionConfig {
   easing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'therapeutic';
   morphing: boolean; // Morphing between patterns vs instant switch
   crossfade: boolean; // Audio crossfading during transitions
+}
+
+// === DEFAULT CONFIG FACTORIES ===
+// These factory functions create complete BLS config objects with sensible defaults
+// Used to prevent TypeScript errors when creating partial configurations
+
+/**
+ * Creates a complete BLSAudioConfig with sensible defaults
+ */
+export function createDefaultBLSAudioConfig(overrides: Partial<BLSAudioConfig> = {}): BLSAudioConfig {
+  return {
+    enabled: false,
+    audioType: 'binaural-beats',
+    binauralFrequency: 10, // Alpha waves
+    binauralType: 'alpha',
+    spatialAudio: false,
+    panIntensity: 0.5,
+    volume: 0.5,
+    reverbEnabled: false,
+    filterEnabled: false,
+    ...overrides
+  };
+}
+
+/**
+ * Creates a complete BLSHapticsConfig with sensible defaults
+ */
+export function createDefaultBLSHapticsConfig(overrides: Partial<BLSHapticsConfig> = {}): BLSHapticsConfig {
+  return {
+    enabled: false,
+    pattern: 'pulse',
+    intensity: 0.5,
+    syncWithMovement: false,
+    syncWithAudio: false,
+    duration: 100,
+    interval: 500,
+    ...overrides
+  };
+}
+
+/**
+ * Creates a complete BLS3DConfig with sensible defaults
+ */
+export function createDefaultBLS3DConfig(overrides: Partial<BLS3DConfig> = {}): BLS3DConfig {
+  return {
+    enabled: false,
+    antialias: true,
+    shadows: false,
+    lighting: 'basic',
+    cameraType: 'perspective',
+    fieldOfView: 75,
+    cameraDistance: 10,
+    bloomEffect: false,
+    blurBackground: false,
+    particleEffects: false,
+    ...overrides
+  };
+}
+
+/**
+ * Creates a complete BLSTransitionConfig with sensible defaults
+ */
+export function createDefaultBLSTransitionConfig(overrides: Partial<BLSTransitionConfig> = {}): BLSTransitionConfig {
+  return {
+    enabled: true,
+    duration: 500,
+    easing: 'ease-in-out',
+    morphing: false,
+    crossfade: false,
+    ...overrides
+  };
+}
+
+/**
+ * Creates a complete BLSConfiguration with sensible defaults
+ */
+export function createDefaultBLSConfiguration(overrides: Partial<BLSConfiguration> = {}): BLSConfiguration {
+  return {
+    speed: 5,
+    pattern: 'horizontal',
+    color: '#3b82f6',
+    size: 20,
+    audio: createDefaultBLSAudioConfig(),
+    haptics: createDefaultBLSHapticsConfig(),
+    rendering3D: createDefaultBLS3DConfig(),
+    transitions: createDefaultBLSTransitionConfig(),
+    adaptiveMode: false,
+    emotionMapping: false,
+    hysteresisEnabled: true,
+    therapeuticMode: 'standard',
+    sessionPhase: 'preparation',
+    soundEnabled: false,
+    ...overrides
+  };
 }
 
 // Main BLS Configuration - Revolutionary 3D System
@@ -592,7 +707,7 @@ export interface EnhancedAITherapistResponse extends AITherapistResponse {
     historicalContext: string[];
   };
   progressUpdate?: {
-    metrics: Partial<ProgressMetrics>;
+    metrics: Partial<ProgressMetric>;
     improvementAreas: string[];
     concernAreas: string[];
     predictions: string[];
@@ -633,15 +748,17 @@ export interface ProgressMetricData {
   stability: number;
 }
 
-// === IMPORT DATABASE TYPES FROM SINGLE SOURCE OF TRUTH ===
-// Import all database-related types from shared/schema.ts to fix TYPE/MODEL DIVERGENCE
+// === TYPES NOW IMPORTED AT TOP OF FILE ===
+// All database-related types are imported at the top to fix TYPE/MODEL DIVERGENCE
+// Re-export for backwards compatibility
 export type { 
   SessionMemorySnapshot, 
   ProgressMetric, 
   SessionComparison, 
   BreakthroughMoment, 
   MemoryInsight, 
-  EmotionalPatternAnalysis as EmotionalPattern,
+  Session,
+  User,
   // Insert types
   InsertSessionMemorySnapshot,
   InsertProgressMetric,
@@ -649,7 +766,7 @@ export type {
   InsertBreakthroughMoment,
   InsertMemoryInsight,
   InsertEmotionalPatternAnalysis
-} from './schema';
+};
 
 // === SESSION MEMORY SERVICE TYPES ===
 
@@ -709,8 +826,8 @@ export interface SessionHistoryRequest {
 export interface SessionHistoryResponse {
   sessions: Session[];
   snapshots?: SessionMemorySnapshot[];
-  metrics?: ProgressMetrics[];
-  comparisons?: SessionComparisonResult[];
+  metrics?: ProgressMetric[];
+  comparisons?: SessionComparison[];
   insights?: MemoryInsight[];
   patterns?: EmotionalPattern[];
   breakthroughs?: BreakthroughMoment[];
@@ -730,7 +847,7 @@ export interface CompareSessionsRequest {
 }
 
 export interface CompareSessionsResponse {
-  comparison: SessionComparisonResult;
+  comparison: SessionComparison;
   recommendations: PersonalizedRecommendation[];
   insights: MemoryInsight[];
   trends: {
@@ -748,7 +865,7 @@ export interface GenerateProgressReportRequest {
 }
 
 export interface ProgressReportResponse {
-  metrics: ProgressMetrics;
+  metrics: ProgressMetric;
   visualizations?: {
     charts: any[];
     heatmaps: any[];
@@ -788,7 +905,7 @@ export interface LiveMemoryUpdate {
 export interface MemoryEnhancedAIContext extends AIChatContext {
   historicalPatterns: EmotionalPattern[];
   recentBreakthroughs: BreakthroughMoment[];
-  progressTrends: ProgressMetrics;
+  progressTrends: ProgressMetric;
   riskFactors: string[];
   effectiveInterventions: Record<string, number>;
   memoryInsights: MemoryInsight[];

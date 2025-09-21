@@ -290,34 +290,74 @@ const BilateralStimulation = forwardRef<BilateralStimulationRef, BilateralStimul
     const startBLS = async () => {
       if (isActive) return;
       
-      setIsActive(true);
-      startTimeRef.current = Date.now();
-      
       try {
+        setIsActive(true);
+        startTimeRef.current = Date.now();
+        
+        // Enhanced error handling for 3D/2D transitions
         if (is3DMode && renderer3DRef.current) {
-          // Start 3D Animation
-          renderer3DRef.current.start(config.pattern, config.speed);
-          
-          // Start Advanced Audio
-          if (audioEngineRef.current && config.audio.enabled) {
-            await audioEngineRef.current.startAudio(config.audio);
-          }
-          
-          // Start Haptics
-          if (hapticsEngineRef.current && config.haptics.enabled) {
-            hapticsEngineRef.current.start(config.haptics);
+          try {
+            // Start 3D Animation
+            renderer3DRef.current.start(config.pattern, config.speed);
+            
+            // Start Advanced Audio
+            if (audioEngineRef.current && config.audio.enabled) {
+              await audioEngineRef.current.startAudio(config.audio);
+            }
+            
+            // Start Haptics
+            if (hapticsEngineRef.current && config.haptics.enabled) {
+              hapticsEngineRef.current.start(config.haptics);
+            }
+            
+            console.log(`🎯 BLS Started in 3D mode`);
+          } catch (error3D) {
+            console.warn('3D BLS failed, falling back to 2D:', error3D);
+            setIs3DMode(false);
+            throw error3D; // Trigger 2D fallback
           }
         } else {
           // Fallback to 2D animation
-          start2DFallback();
+          try {
+            start2DFallback();
+            console.log(`🎯 BLS Started in 2D fallback mode`);
+          } catch (error2D) {
+            console.error('2D fallback also failed:', error2D);
+            setIsActive(false); // Reset state on complete failure
+            throw error2D;
+          }
         }
         
-        console.log(`🎯 BLS Started in ${is3DMode ? '3D' : '2D fallback'} mode`);
       } catch (error) {
         console.error('Failed to start BLS:', error);
-        // Fallback to 2D if 3D fails
-        setIs3DMode(false);
-        start2DFallback();
+        
+        // Last resort: try 2D fallback if we haven't already
+        if (is3DMode) {
+          try {
+            setIs3DMode(false);
+            start2DFallback();
+            console.log(`🎯 BLS Started in 2D fallback mode (last resort)`);
+          } catch (fallbackError) {
+            console.error('Complete BLS failure:', fallbackError);
+            setIsActive(false);
+            // Show user-friendly error message instead of silent failure
+            if (onMetricsUpdate) {
+              onMetricsUpdate({
+                ...metrics,
+                attentionScore: -1 // Flag for error state
+              });
+            }
+          }
+        } else {
+          setIsActive(false);
+          // Show user-friendly error message
+          if (onMetricsUpdate) {
+            onMetricsUpdate({
+              ...metrics,
+              attentionScore: -1 // Flag for error state
+            });
+          }
+        }
       }
     };
     
@@ -566,6 +606,37 @@ const BilateralStimulation = forwardRef<BilateralStimulationRef, BilateralStimul
       
       oscillator.start();
       oscillator.stop(audioContextRef.current.currentTime + 0.05); // 50ms beep
+    };
+
+    // Missing function: playSound for animation bounces
+    const playSound = () => {
+      if (!config.soundEnabled && !config.audio.enabled) return;
+      
+      // Use AudioEngine if available, otherwise fallback to legacy audio
+      if (audioEngineRef.current && config.audio.enabled) {
+        // Update stereo panning based on ball position
+        const normalizedX = ballPosition / (containerRef.current?.offsetWidth || 400);
+        audioEngineRef.current.updatePanning(normalizedX);
+      } else {
+        // Fallback to legacy sound
+        playLegacySound();
+      }
+    };
+
+    // Missing function: animate2DFallback to start 2D animation
+    const animate2DFallback = () => {
+      console.log('🎯 Starting 2D fallback animation');
+      
+      // Reset position to start
+      setBallPosition(getInitialPosition());
+      setBallDirection(1);
+      
+      // Set start time for metrics
+      startTimeRef.current = Date.now();
+      
+      // Start the animation by setting isActive to true
+      // This will trigger the existing useEffect animation loop
+      setIsActive(true);
     };
     
     // Get initial ball position based on pattern

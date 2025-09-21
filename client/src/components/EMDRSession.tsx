@@ -546,7 +546,10 @@ export default function EMDRSession() {
     }
   };
 
-  // Save emotion snapshot to database
+  // Error throttling for emotion snapshot saves
+  const emotionSaveErrorThrottle = useRef<{ lastError: number; count: number }>({ lastError: 0, count: 0 });
+
+  // Save emotion snapshot to database with error throttling
   const saveEmotionSnapshot = async (emotions: EmotionData) => {
     try {
       // Get or create session ID (temporary demo implementation)
@@ -558,7 +561,10 @@ export default function EMDRSession() {
       // Save emotion data to backend
       const response = await fetch('/api/emotions/capture', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache'
+        },
         body: JSON.stringify({
           sessionId: sessionId,
           emotionData: emotions,
@@ -569,13 +575,29 @@ export default function EMDRSession() {
       });
       
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
       
       const result = await response.json();
       console.log('Emotion snapshot saved:', result.captureId);
+      
+      // Reset error count on success
+      emotionSaveErrorThrottle.current.count = 0;
     } catch (error) {
-      console.error('Failed to save emotion snapshot:', error);
+      // Throttle error logging to prevent spam
+      const now = Date.now();
+      const timeSinceLastError = now - emotionSaveErrorThrottle.current.lastError;
+      
+      if (timeSinceLastError > 5000 || emotionSaveErrorThrottle.current.count < 3) {
+        console.error('Failed to save emotion snapshot:', {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          timestamp: new Date().toISOString(),
+          errorCount: emotionSaveErrorThrottle.current.count + 1
+        });
+        emotionSaveErrorThrottle.current.lastError = now;
+        emotionSaveErrorThrottle.current.count++;
+      }
     }
   };
 

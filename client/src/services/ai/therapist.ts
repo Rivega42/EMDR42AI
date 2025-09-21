@@ -25,6 +25,12 @@ export class AITherapistService {
   private crisisCallbacks: ((crisis: CrisisDetection) => void)[] = [];
   private sessionStartTime: number | null = null;
   
+  // Error throttling for API calls
+  private errorThrottle = {
+    emotionResponse: { lastError: 0, count: 0 },
+    sessionGuidance: { lastError: 0, count: 0 }
+  };
+  
   // === Revolutionary AI Chat Methods ===
 
   /**
@@ -126,7 +132,21 @@ export class AITherapistService {
 
       return await response.json();
     } catch (error) {
-      console.error('Session guidance error:', error);
+      // Throttle error logging for session guidance
+      const now = Date.now();
+      const timeSinceLastError = now - this.errorThrottle.sessionGuidance.lastError;
+      
+      if (timeSinceLastError > 10000 || this.errorThrottle.sessionGuidance.count < 3) {
+        console.error('Session guidance error:', {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          endpoint: '/api/ai-therapist/session-guidance',
+          timestamp: new Date().toISOString(),
+          errorCount: this.errorThrottle.sessionGuidance.count + 1
+        });
+        this.errorThrottle.sessionGuidance.lastError = now;
+        this.errorThrottle.sessionGuidance.count++;
+      }
+      
       return this.getDefaultSessionGuidance();
     }
   }
@@ -177,7 +197,22 @@ export class AITherapistService {
       
       return emotionResponse;
     } catch (error) {
-      console.error('Emotion response error:', error);
+      // Throttle error logging to prevent spam
+      const now = Date.now();
+      const timeSinceLastError = now - this.errorThrottle.emotionResponse.lastError;
+      
+      if (timeSinceLastError > 10000 || this.errorThrottle.emotionResponse.count < 3) {
+        console.error('Emotion response error:', {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          endpoint: '/api/ai-therapist/emotion-response',
+          status: error instanceof Response ? error.status : 'N/A',
+          timestamp: new Date().toISOString(),
+          errorCount: this.errorThrottle.emotionResponse.count + 1
+        });
+        this.errorThrottle.emotionResponse.lastError = now;
+        this.errorThrottle.emotionResponse.count++;
+      }
+      
       return this.getDefaultEmotionResponse(emotionData);
     }
   }

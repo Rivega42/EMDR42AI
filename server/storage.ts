@@ -39,6 +39,7 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  upsertUser(user: { id: string; email: string; firstName: string; lastName: string; profileImageUrl: string }): Promise<User>;
   
   // Session methods
   createSession(session: InsertSession): Promise<Session>;
@@ -166,6 +167,42 @@ export class MemStorage implements IStorage {
     };
     this.users.set(id, user);
     return user;
+  }
+  
+  async upsertUser(userData: { id: string; email: string; firstName: string; lastName: string; profileImageUrl: string }): Promise<User> {
+    const existingUser = this.users.get(userData.id);
+    if (existingUser) {
+      // Update existing user with Replit auth data
+      const updatedUser: User = {
+        ...existingUser,
+        email: userData.email,
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+        profileImageUrl: userData.profileImageUrl,
+        updatedAt: new Date()
+      };
+      this.users.set(userData.id, updatedUser);
+      return updatedUser;
+    } else {
+      // Create new user from Replit auth data
+      const newUser: User = {
+        id: userData.id,
+        email: userData.email,
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+        profileImageUrl: userData.profileImageUrl,
+        role: 'patient', // Default role for new Replit users
+        username: null,
+        password: null,
+        specialization: null,
+        licenseNumber: null,
+        clinicalLevel: null,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      this.users.set(userData.id, newUser);
+      return newUser;
+    }
   }
   
   // Session methods
@@ -667,6 +704,32 @@ export class DbStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const result = await db.insert(users).values(insertUser).returning();
+    return result[0];
+  }
+  
+  async upsertUser(userData: { id: string; email: string; firstName: string; lastName: string; profileImageUrl: string }): Promise<User> {
+    // Use PostgreSQL ON CONFLICT for upsert behavior
+    const result = await db.insert(users)
+      .values({
+        id: userData.id,
+        email: userData.email,
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+        profileImageUrl: userData.profileImageUrl,
+        role: 'patient', // Default role for new Replit users
+        updatedAt: new Date()
+      })
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          email: userData.email,
+          firstName: userData.firstName,
+          lastName: userData.lastName,
+          profileImageUrl: userData.profileImageUrl,
+          updatedAt: new Date()
+        }
+      })
+      .returning();
     return result[0];
   }
   

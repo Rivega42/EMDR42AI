@@ -305,10 +305,10 @@ export const emotionalPatternAnalysis = pgTable("emotional_pattern_analysis", {
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
-  password: true,
   role: true,
   email: true,
-  fullName: true,
+  firstName: true,
+  lastName: true,
 });
 
 export const insertSessionSchema = createInsertSchema(emdrSessions).omit({
@@ -420,9 +420,3 @@ export type EmotionalPatternAnalysis = typeof emotionalPatternAnalysis.$inferSel
 
 // Auth types for Replit authentication
 export type UpsertUser = typeof users.$inferInsert;
-export type InsertUser = typeof users.$inferInsert;
-export type User = typeof users.$inferSelect;
-export type BLSConfiguration = typeof blsConfigurations.$inferSelect;
-
-export type InsertSessionNote = z.infer<typeof insertSessionNoteSchema>;
-export type SessionNote = typeof sessionNotes.$inferSelect;
