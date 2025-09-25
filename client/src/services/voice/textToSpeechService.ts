@@ -51,7 +51,8 @@ const DEFAULT_VOICE_CONFIG: TTSVoiceConfig = {
     authority: 0.6,
     empathy: 0.9,
     clarity: 0.9,
-    pace: 'normal'
+    pace: 'normal',
+    calmness: 0.8
   },
   therapeuticProfile: {
     anxietyFriendly: true,
@@ -86,13 +87,15 @@ class TTSAudioCache {
   }
 
   private generateCacheKey(request: TTSSynthesisRequest): string {
+    const quality = request.quality || { sampleRate: 24000, bitRate: 128, format: 'mp3' };
+    const qualityObj = typeof quality === 'string' ? { sampleRate: 24000, bitRate: 128, format: 'mp3' } : quality;
     const keyData = {
       text: request.text.trim().toLowerCase(),
       voice: request.voice.name,
       language: request.voice.language,
-      speed: request.options.speed,
-      pitch: request.options.pitch,
-      quality: `${request.quality.sampleRate}_${request.quality.bitRate}_${request.quality.format}`
+      speed: request.options?.speed || 1.0,
+      pitch: request.options?.pitch || 0,
+      quality: `${qualityObj.sampleRate}_${qualityObj.bitRate}_${qualityObj.format}`
     };
     return btoa(JSON.stringify(keyData)).replace(/[^a-zA-Z0-9]/g, '').substring(0, 32);
   }
@@ -123,7 +126,7 @@ class TTSAudioCache {
     const estimatedSize = this.estimateSize(response);
     
     // Check if adding this would exceed cache limit
-    if (this.cacheStats.size + estimatedSize > this.config.maxSize * 1024 * 1024) {
+    if (this.cacheStats.size + estimatedSize > (this.config.maxSize || 100) * 1024 * 1024) {
       this.evictOldEntries();
     }
     
@@ -168,7 +171,7 @@ class TTSAudioCache {
 
   private startCleanupTimer(): void {
     setInterval(() => {
-      if (Date.now() - this.cacheStats.lastCleanup > this.config.ttl * 1000) {
+      if (Date.now() - this.cacheStats.lastCleanup > (this.config.ttl || 3600) * 1000) {
         this.evictOldEntries();
         this.cacheStats.lastCleanup = Date.now();
       }
@@ -178,10 +181,10 @@ class TTSAudioCache {
   getStats() {
     const hitRate = this.cacheStats.hits / (this.cacheStats.hits + this.cacheStats.misses);
     return {
-      enabled: this.config.enabled,
+      enabled: this.config.enabled || false,
       size: this.cacheStats.size / (1024 * 1024), // Convert to MB
       hitRate: isNaN(hitRate) ? 0 : hitRate,
-      maxSize: this.config.maxSize,
+      maxSize: this.config.maxSize || 100,
       entries: this.cache.size
     };
   }
@@ -656,7 +659,13 @@ export class TextToSpeechService {
    * Get current service status
    */
   getStatus(): TTSServiceStatus {
-    this.status.cacheStatus = this.cache.getStats();
+    const cacheStats = this.cache.getStats();
+    this.status.cacheStatus = {
+      enabled: cacheStats.enabled,
+      size: cacheStats.size,
+      hitRate: cacheStats.hitRate,
+      maxSize: cacheStats.maxSize
+    };
     return { ...this.status };
   }
 
@@ -687,7 +696,8 @@ export class TextToSpeechService {
   async cleanup(): Promise<void> {
     console.log('🧹 Cleaning up TextToSpeechService...');
     
-    for (const provider of this.providers.values()) {
+    const providerArray = Array.from(this.providers.values());
+    for (const provider of providerArray) {
       await provider.cleanup();
     }
     
@@ -697,7 +707,7 @@ export class TextToSpeechService {
   }
 
   // Event handler setters
-  onStatusChange(handler: (status: TTSServiceStatus) => void): void {
+  setOnStatusChange(handler: (status: TTSServiceStatus) => void): void {
     this.onStatusChange = handler;
   }
 

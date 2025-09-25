@@ -17,7 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AnalyticsDashboard } from '@/components/AnalyticsDashboard';
 import ExportReports from '@/components/ExportReports';
-import { BarChart3, Brain, Target, Users, Download, Settings, TrendingUp, AlertTriangle } from 'lucide-react';
+import { BarChart3, Brain, Target, Users, Download, Settings, TrendingUp, AlertTriangle, RefreshCw } from 'lucide-react';
 
 export default function AnalyticsPage() {
   const [selectedPatient, setSelectedPatient] = useState('patient_demo_001');
@@ -114,7 +114,7 @@ export default function AnalyticsPage() {
                 <Users className="w-5 h-5 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
-                <div className="text-2xl font-semibold">{stats.totalPatients}</div>
+                <div className="text-2xl font-semibold">{stats?.totalPatients || 0}</div>
                 <div className="text-sm text-muted-foreground">Total Patients</div>
               </div>
             </div>
@@ -124,7 +124,7 @@ export default function AnalyticsPage() {
                 <Target className="w-5 h-5 text-green-600 dark:text-green-400" />
               </div>
               <div>
-                <div className="text-2xl font-semibold">{stats.activeSessions}</div>
+                <div className="text-2xl font-semibold">{stats?.activeSessions || 0}</div>
                 <div className="text-sm text-muted-foreground">Active Sessions</div>
               </div>
             </div>
@@ -134,7 +134,7 @@ export default function AnalyticsPage() {
                 <Brain className="w-5 h-5 text-purple-600 dark:text-purple-400" />
               </div>
               <div>
-                <div className="text-2xl font-semibold">{stats.breakthroughsToday}</div>
+                <div className="text-2xl font-semibold">{stats?.breakthroughsToday || 0}</div>
                 <div className="text-sm text-muted-foreground">Breakthroughs Today</div>
               </div>
             </div>
@@ -144,7 +144,7 @@ export default function AnalyticsPage() {
                 <TrendingUp className="w-5 h-5 text-orange-600 dark:text-orange-400" />
               </div>
               <div>
-                <div className="text-2xl font-semibold">{stats.systemHealth}%</div>
+                <div className="text-2xl font-semibold">{stats?.systemHealth || 0}%</div>
                 <div className="text-sm text-muted-foreground">System Health</div>
               </div>
             </div>

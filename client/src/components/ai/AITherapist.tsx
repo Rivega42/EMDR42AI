@@ -43,7 +43,7 @@ import {
 } from 'lucide-react';
 import { aiTherapist } from '@/services/ai/therapist';
 import { getVoiceAITherapistService } from '@/services/ai/voiceAITherapistService';
-import { getUnifiedEmotionService } from '@/services/emotion/emotionService';
+import { unifiedEmotionService } from '@/services/emotion/emotionService';
 import type { 
   EMDRPhase, 
   AITherapistMessage, 
@@ -110,6 +110,11 @@ export function AITherapist({
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceConversationHistory, setVoiceConversationHistory] = useState<VoiceConversationTurn[]>([]);
   
+  // Missing push-to-talk and voice state variables
+  const [usePushToTalk, setUsePushToTalk] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  
   // Real-time emotion feedback state
   const [currentEmotionForVoice, setCurrentEmotionForVoice] = useState<EmotionData | null>(null);
   const [emotionTrend, setEmotionTrend] = useState<'improving' | 'stable' | 'declining' | null>(null);
@@ -118,7 +123,7 @@ export function AITherapist({
   
   // Service references
   const voiceServiceRef = useRef(getVoiceAITherapistService());
-  const emotionServiceRef = useRef(getUnifiedEmotionService());
+  const emotionServiceRef = useRef(unifiedEmotionService);
   
   // Legacy refs (kept for cleanup)
   const animationFrameRef = useRef<number | null>(null);
@@ -164,37 +169,22 @@ export function AITherapist({
         // Add to chat messages
         const chatMessage: ChatMessage = {
           id: `voice-turn-${Date.now()}`,
-          type: turn.speaker === 'patient' ? 'user' : 'ai',
-          message: turn.content,
+          type: turn.type === 'patient' ? 'user' : 'ai',
+          message: turn.transcription?.text || turn.aiResponse?.message.content || '',
           timestamp: Date.now(),
-          emotionalContext: turn.emotionalContext || currentEmotionForVoice,
+          emotionalContext: turn.emotionContext?.patientEmotion || currentEmotionForVoice || undefined,
           isVoice: true,
-          transcriptionConfidence: turn.confidence
+          transcriptionConfidence: turn.transcription?.confidence || 0
         };
         setMessages(prev => [...prev, chatMessage]);
       });
       
       // Subscribe to crisis detection during voice
-      voiceService.addEventListener('onCrisisDetected', (emotion: EmotionData, score: number) => {
-        setCrisisLevel(score > 0.8 ? 'severe' : score > 0.6 ? 'moderate' : 'mild');
+      voiceService.addEventListener('onCrisisDetected', (crisis: CrisisDetection) => {
+        setCrisisLevel('severe');
         
         // Emit crisis event to parent
-        const crisisDetection: CrisisDetection = {
-          isCrisis: true,
-          riskLevel: score > 0.8 ? 'severe' : 'high',
-          triggers: ['voice-emotion-analysis'],
-          interventions: {
-            immediate: ['Voice conversation interrupted for crisis support'],
-            escalation: ['Professional intervention may be needed'],
-            contacts: ['Emergency: 911', 'Crisis hotline: 988']
-          },
-          monitoring: {
-            increaseFrequency: true,
-            requireSupervision: score > 0.8,
-            documentRequired: true
-          }
-        };
-        onCrisis(crisisDetection);
+        onCrisis(crisis);
       });
       
       // Subscribe to voice activity detection
@@ -500,7 +490,7 @@ export function AITherapist({
     };
     
     setMessages(prev => [...prev, userMessage]);
-    setVoiceStatus('processing');
+    setVoiceStatus('ai-processing');
     
     try {
       const aiResponse = await aiTherapist.sendMessage(text);
@@ -566,12 +556,13 @@ export function AITherapist({
         const voiceService = voiceServiceRef.current;
         
         // Initialize voice service if not already done
-        if (!voiceService.getStatus().isInitialized) {
+        const status = voiceService.getStatus();
+        if (!status.isActive) {
           await voiceService.initialize();
         }
         
         // Start emotion-aware voice conversation
-        await voiceService.startConversation();
+        await voiceService.startConversation(sessionId, patientId, currentPhase);
         
         // Update status
         setVoiceConversationStatus(voiceService.getStatus());
@@ -676,7 +667,7 @@ export function AITherapist({
     switch (voiceStatus) {
       case 'listening':
         return 'Слушаю вас...';
-      case 'processing':
+      case 'ai-processing':
         return 'Обрабатываю речь...';
       case 'speaking':
         return 'AI говорит...';
@@ -904,7 +895,7 @@ export function AITherapist({
                           <Radio className="h-4 w-4 text-green-500 animate-pulse" />
                         ) : voiceStatus === 'speaking' ? (
                           <Volume2 className="h-4 w-4 text-blue-500 animate-pulse" />
-                        ) : voiceStatus === 'processing' ? (
+                        ) : voiceStatus === 'ai-processing' ? (
                           <Brain className="h-4 w-4 text-yellow-500 animate-pulse" />
                         ) : (
                           <Mic className="h-4 w-4 text-muted-foreground" />
@@ -1038,7 +1029,7 @@ export function AITherapist({
                         </Badge>
                       )}
                       
-                      {voiceStatus === 'processing' && (
+                      {voiceStatus === 'ai-processing' && (
                         <Badge variant="secondary" className="animate-pulse">
                           <Brain className="h-3 w-3 mr-1" />
                           Обрабатываю

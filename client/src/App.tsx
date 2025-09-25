@@ -7,6 +7,10 @@ import Home from "@/pages/Home";
 import PatientDashboardPage from "@/pages/PatientDashboardPage";
 import TherapistDashboardPage from "@/pages/TherapistDashboardPage";
 import AdminDashboardPage from "@/pages/AdminDashboardPage";
+import AdminSessionsPage from "@/pages/AdminSessionsPage";
+import AdminUsersPage from "@/pages/AdminUsersPage";
+import AdminAnalyticsPage from "@/pages/AdminAnalyticsPage";
+import AdminSystemPage from "@/pages/AdminSystemPage";
 import EMDRSessionPage from "@/pages/EMDRSessionPage";
 import PatientSettingsPage from "@/pages/PatientSettingsPage";
 import TherapistSettingsPage from "@/pages/TherapistSettingsPage";
@@ -23,6 +27,10 @@ function Router() {
       <Route path="/patient" component={PatientDashboardPage} />
       <Route path="/therapist" component={TherapistDashboardPage} />
       <Route path="/admin" component={AdminDashboardPage} />
+      <Route path="/admin/sessions" component={AdminSessionsPage} />
+      <Route path="/admin/users" component={AdminUsersPage} />
+      <Route path="/admin/analytics" component={AdminAnalyticsPage} />
+      <Route path="/admin/system" component={AdminSystemPage} />
       <Route path="/analytics" component={AnalyticsPage} />
       <Route path="/session" component={EMDRSessionPage} />
       <Route path="/patient/settings" component={PatientSettingsPage} />
