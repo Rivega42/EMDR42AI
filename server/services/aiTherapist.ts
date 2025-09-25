@@ -21,6 +21,36 @@ import type {
   EMDRProtocol
 } from '../../shared/types';
 
+// Voice Context Data for enhanced AI processing
+interface VoiceContextData {
+  prosody: {
+    arousal: number;
+    valence: number;
+    intensity: number;
+    pace: number;
+    volume: number;
+    pitch: number;
+    stability: number;
+  };
+  voiceEmotions: {
+    confidence: number;
+    excitement: number;
+    stress: number;
+    fatigue: number;
+    engagement: number;
+    uncertainty: number;
+    authenticity: number;
+  };
+  confidence: number;
+  provider: string;
+  timestamp: number;
+  audioQuality?: {
+    clarity: number;
+    signalToNoise: number;
+    backgroundNoise: number;
+  };
+}
+
 export class BackendAITherapistService {
   private openai: OpenAI;
   private emdrProtocol: EMDRProtocol;
@@ -237,11 +267,12 @@ export class BackendAITherapistService {
    */
   async handleChatMessage(
     message: string,
-    context: AIChatContext
+    context: AIChatContext,
+    voiceContext?: VoiceContextData
   ): Promise<AITherapistMessage> {
     try {
-      const systemPrompt = this.createChatSystemPrompt(context);
-      const userPrompt = `Пациент говорит: "${message}"\n\nТекущая эмоциональная ситуация: arousal=${context.currentEmotionalState.arousal}, valence=${context.currentEmotionalState.valence}\n\nОтвети как опытный EMDR терапевт. Формат ответа JSON: {"response": "ваш ответ", "confidence": 0.9, "suggestedActions": ["действие1", "действие2"], "criticalityLevel": "low|medium|high|crisis"}`;
+      const systemPrompt = this.createChatSystemPrompt(context, voiceContext);
+      const userPrompt = this.createUserPrompt(message, context, voiceContext);
 
       const response = await this.openai.chat.completions.create({
         model: 'gpt-5', // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
@@ -264,7 +295,13 @@ export class BackendAITherapistService {
         confidence: aiResponse.confidence || 0.8,
         metadata: {
           suggestedActions: aiResponse.suggestedActions || [],
-          criticalityLevel: aiResponse.criticalityLevel || 'low'
+          criticalityLevel: aiResponse.criticalityLevel || 'low',
+          reasoning: aiResponse.reasoning,
+          voiceContext: voiceContext ? {
+            prosody: voiceContext.prosody,
+            emotions: voiceContext.voiceEmotions,
+            confidence: voiceContext.confidence
+          } : undefined
         }
       };
     } catch (error) {
@@ -276,6 +313,79 @@ export class BackendAITherapistService {
         timestamp: Date.now(),
         phase: context.phaseContext.currentPhase,
         confidence: 0.5
+      };
+    }
+  }
+
+  /**
+   * Handle voice conversation with enhanced prosody and emotion analysis
+   */
+  async handleVoiceMessage(
+    message: string,
+    context: AIChatContext,
+    voiceContext: VoiceContextData
+  ): Promise<AITherapistMessage> {
+    try {
+      const systemPrompt = this.createVoiceSystemPrompt(context, voiceContext);
+      const userPrompt = this.createVoiceUserPrompt(message, context, voiceContext);
+
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-5',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        response_format: { type: 'json_object' }
+      });
+
+      const aiResponse = JSON.parse(response.choices[0].message.content!);
+
+      // Analyze voice for crisis detection
+      const crisisDetection = this.detectVoiceCrisis(voiceContext, aiResponse);
+
+      return {
+        id: Date.now().toString(),
+        type: 'therapist',
+        content: aiResponse.response,
+        timestamp: Date.now(),
+        phase: context.phaseContext.currentPhase,
+        emotionalContext: context.currentEmotionalState,
+        confidence: aiResponse.confidence || 0.8,
+        crisisDetection: crisisDetection.isCrisis ? crisisDetection : undefined,
+        metadata: {
+          suggestedActions: aiResponse.suggestedActions || [],
+          criticalityLevel: crisisDetection.isCrisis ? 'crisis' : (aiResponse.criticalityLevel || 'low'),
+          reasoning: aiResponse.reasoning,
+          voiceContext: {
+            prosody: voiceContext.prosody,
+            emotions: voiceContext.voiceEmotions,
+            confidence: voiceContext.confidence,
+            recommendedVoiceStyle: aiResponse.recommendedVoiceStyle || 'calming'
+          },
+          therapeuticVoiceGuidance: {
+            warmth: this.calculateOptimalWarmth(voiceContext),
+            pace: this.calculateOptimalPace(voiceContext),
+            empathy: this.calculateOptimalEmpathy(voiceContext, context.currentEmotionalState)
+          }
+        }
+      };
+    } catch (error) {
+      console.error('Voice message error:', error);
+      return {
+        id: Date.now().toString(),
+        type: 'therapist',
+        content: 'Я слышу, что вам сейчас трудно. Давайте сделаем глубокий вдох вместе.',
+        timestamp: Date.now(),
+        phase: context.phaseContext.currentPhase,
+        confidence: 0.5,
+        metadata: {
+          criticalityLevel: 'medium',
+          therapeuticVoiceGuidance: {
+            warmth: 0.9,
+            pace: 'slow',
+            empathy: 1.0
+          }
+        }
       };
     }
   }
@@ -1106,6 +1216,305 @@ Valence: ${valence.toFixed(2)} (${valenceDesc})
   private calculateOptimalSize(arousal: number): number {
     // Higher arousal -> larger size for better focus
     return Math.max(15, Math.min(30, 15 + Math.floor(arousal * 15)));
+  }
+
+  // === Voice Processing Methods ===
+
+  /**
+   * Create enhanced user prompt with voice context
+   */
+  private createUserPrompt(message: string, context: AIChatContext, voiceContext?: VoiceContextData): string {
+    let prompt = `Пациент говорит: "${message}"\n\nТекущая эмоциональная ситуация: arousal=${context.currentEmotionalState.arousal}, valence=${context.currentEmotionalState.valence}`;
+    
+    if (voiceContext) {
+      prompt += `\n\nГолосовые характеристики:
+- Интенсивность голоса: ${voiceContext.prosody.intensity.toFixed(2)}
+- Темп речи: ${voiceContext.prosody.pace.toFixed(2)}
+- Стабильность голоса: ${voiceContext.prosody.stability.toFixed(2)}
+- Уровень стресса в голосе: ${voiceContext.voiceEmotions.stress.toFixed(2)}
+- Уровень вовлеченности: ${voiceContext.voiceEmotions.engagement.toFixed(2)}
+- Уверенность в голосе: ${voiceContext.voiceEmotions.confidence.toFixed(2)}`;
+    }
+
+    prompt += `\n\nОтвети как опытный EMDR терапевт. Формат ответа JSON: {"response": "ваш ответ", "confidence": 0.9, "suggestedActions": ["действие1", "действие2"], "criticalityLevel": "low|medium|high|crisis", "reasoning": "объяснение"}`;
+
+    return prompt;
+  }
+
+  /**
+   * Create specialized voice system prompt
+   */
+  private createVoiceSystemPrompt(context: AIChatContext, voiceContext: VoiceContextData): string {
+    const anonymizedSessionId = this.anonymizeSessionId(context.sessionId);
+    const emotionalCategory = this.categorizeEmotionalState(context.currentEmotionalState);
+    const voiceAnalysis = this.analyzeVoiceContext(voiceContext);
+    
+    return `МЕДИЦИНСКИЙ ДИСКЛАЙМЕР: Я - AI-помощник терапевта, НЕ замещающий профессиональное лечение. При кризисе обращайтесь: 8-800-2000-122.
+
+Вы - AI-помощник для ГОЛОСОВОЙ EMDR терапии под наблюдением лицензированного терапевта.
+
+АНОНИМИЗИРОВАННЫЕ ДАННЫЕ:
+- Сессия: ${anonymizedSessionId}
+- Эмоциональная категория: ${emotionalCategory}
+- Фаза: ${context.phaseContext.currentPhase}
+- Время в фазе: ${Math.floor(context.phaseContext.timeInPhase)} минут
+
+АНАЛИЗ ГОЛОСА:
+- Эмоциональная интенсивность: ${voiceAnalysis.emotionalIntensity}
+- Уровень стресса: ${voiceAnalysis.stressLevel}
+- Вовлеченность: ${voiceAnalysis.engagementLevel}
+- Тембр голоса: ${voiceAnalysis.voiceTone}
+- Рекомендуемая адаптация ответа: ${voiceAnalysis.responseAdaptation}
+
+СПЕЦИФИКА ГОЛОСОВОЙ ТЕРАПИИ:
+1. Учитывайте просодические особенности речи пациента
+2. Адаптируйте стиль ответа под эмоциональное состояние голоса
+3. При высоком стрессе в голосе - используйте более успокаивающий тон
+4. При низкой вовлеченности - используйте более теплый и поддерживающий стиль
+5. Рекомендуйте подходящий голосовой стиль для TTS ответа
+
+БЕЗОПАСНОСТЬ:
+1. При кризисе в голосе - немедленная эскалация
+2. Обращайте внимание на признаки диссоциации в речи
+3. НЕ давать медицинских советов
+4. При суицидальных интонациях - критический уровень
+
+ЭКСТРЕННЫЕ КОНТАКТЫ:
+- Телефон доверия: 8-800-2000-122
+- Служба экстренной психологической помощи: 051
+
+Ответы должны учитывать голосовой контекст и включать рекомендации по адаптации голосового ответа.`;
+  }
+
+  /**
+   * Create specialized voice user prompt
+   */
+  private createVoiceUserPrompt(message: string, context: AIChatContext, voiceContext: VoiceContextData): string {
+    const prosodyAnalysis = this.analyzeProsody(voiceContext);
+    const emotionalIndicators = this.analyzeVoiceEmotions(voiceContext);
+    
+    return `Пациент говорит (голосом): "${message}"
+
+КОНТЕКСТ ЭМОЦИОНАЛЬНОГО СОСТОЯНИЯ:
+- Общий arousal: ${context.currentEmotionalState.arousal.toFixed(2)}
+- Общий valence: ${context.currentEmotionalState.valence.toFixed(2)}
+
+АНАЛИЗ ГОЛОСА:
+${prosodyAnalysis}
+
+ЭМОЦИОНАЛЬНЫЕ ИНДИКАТОРЫ В ГОЛОСЕ:
+${emotionalIndicators}
+
+ИНСТРУКЦИИ:
+1. Проанализируйте соответствие между словами и голосом
+2. Определите истинное эмоциональное состояние
+3. Адаптируйте терапевтический ответ под голосовое состояние
+4. Дайте рекомендации по голосовому стилю ответа (теплый/спокойный/поддерживающий)
+
+Формат ответа JSON: {
+  "response": "терапевтический ответ, учитывающий голосовой контекст",
+  "confidence": 0.9,
+  "suggestedActions": ["действие1", "действие2"],
+  "criticalityLevel": "low|medium|high|crisis",
+  "reasoning": "анализ голосового состояния и обоснование ответа",
+  "recommendedVoiceStyle": "calming|warm|supportive|authoritative|gentle"
+}`;
+  }
+
+  /**
+   * Analyze voice context for crisis detection
+   */
+  private detectVoiceCrisis(voiceContext: VoiceContextData, aiResponse: any): CrisisDetection {
+    let isCrisis = false;
+    let riskLevel: CrisisDetection['riskLevel'] = 'none';
+    let triggers: string[] = [];
+
+    // Analyze prosody for crisis indicators
+    if (voiceContext.prosody.stability < 0.3) {
+      triggers.push('Нестабильность голоса');
+      riskLevel = 'moderate';
+    }
+
+    // High stress with low engagement can indicate withdrawal/dissociation
+    if (voiceContext.voiceEmotions.stress > 0.8 && voiceContext.voiceEmotions.engagement < 0.3) {
+      isCrisis = true;
+      riskLevel = 'high';
+      triggers.push('Высокий стресс с низкой вовлеченностью');
+    }
+
+    // Very low authenticity might indicate emotional detachment
+    if (voiceContext.voiceEmotions.authenticity < 0.4) {
+      triggers.push('Эмоциональная отстраненность в голосе');
+      riskLevel = riskLevel === 'none' ? 'moderate' : riskLevel;
+    }
+
+    // Very high uncertainty with high stress
+    if (voiceContext.voiceEmotions.uncertainty > 0.8 && voiceContext.voiceEmotions.stress > 0.7) {
+      isCrisis = true;
+      riskLevel = 'severe';
+      triggers.push('Критическая неопределенность и стресс');
+    }
+
+    // AI-detected crisis
+    if (aiResponse.criticalityLevel === 'crisis') {
+      isCrisis = true;
+      riskLevel = 'severe';
+      triggers.push('AI-детекция кризиса по голосу');
+    }
+
+    return {
+      isCrisis,
+      riskLevel,
+      triggers,
+      interventions: {
+        immediate: isCrisis ? [
+          'Голосовые техники заземления',
+          'Синхронизация дыхания с голосом',
+          'Успокаивающий голосовой ответ'
+        ] : [],
+        escalation: riskLevel === 'severe' ? [
+          'Немедленная голосовая поддержка',
+          'Связь с терапевтом',
+          'Кризисный голосовой протокол'
+        ] : [],
+        contacts: isCrisis ? [
+          'Лечащий терапевт',
+          'Кризисная служба'
+        ] : []
+      },
+      monitoring: {
+        increaseFrequency: riskLevel !== 'none',
+        alertTherapist: riskLevel === 'high' || riskLevel === 'severe',
+        requireSupervision: isCrisis
+      }
+    };
+  }
+
+  /**
+   * Analyze voice context for therapeutic insights
+   */
+  private analyzeVoiceContext(voiceContext: VoiceContextData): {
+    emotionalIntensity: string;
+    stressLevel: string;
+    engagementLevel: string;
+    voiceTone: string;
+    responseAdaptation: string;
+  } {
+    const { prosody, voiceEmotions } = voiceContext;
+
+    // Determine emotional intensity
+    const intensity = prosody.intensity > 0.7 ? 'высокая' : 
+                     prosody.intensity > 0.4 ? 'средняя' : 'низкая';
+
+    // Determine stress level
+    const stress = voiceEmotions.stress > 0.7 ? 'высокий' :
+                   voiceEmotions.stress > 0.4 ? 'средний' : 'низкий';
+
+    // Determine engagement
+    const engagement = voiceEmotions.engagement > 0.7 ? 'высокая' :
+                       voiceEmotions.engagement > 0.4 ? 'средняя' : 'низкая';
+
+    // Determine voice tone
+    const tone = prosody.stability > 0.7 && voiceEmotions.confidence > 0.6 ? 'стабильный' :
+                 voiceEmotions.stress > 0.6 ? 'напряженный' :
+                 voiceEmotions.fatigue > 0.6 ? 'усталый' : 'нестабильный';
+
+    // Determine response adaptation needed
+    let adaptation = 'стандартная';
+    if (voiceEmotions.stress > 0.7) {
+      adaptation = 'успокаивающая';
+    } else if (voiceEmotions.engagement < 0.4) {
+      adaptation = 'активизирующая';
+    } else if (voiceEmotions.uncertainty > 0.6) {
+      adaptation = 'поддерживающая';
+    }
+
+    return {
+      emotionalIntensity: intensity,
+      stressLevel: stress,
+      engagementLevel: engagement,
+      voiceTone: tone,
+      responseAdaptation: adaptation
+    };
+  }
+
+  /**
+   * Analyze prosody details
+   */
+  private analyzeProsody(voiceContext: VoiceContextData): string {
+    const { prosody } = voiceContext;
+    
+    return `- Возбуждение (arousal): ${prosody.arousal.toFixed(2)} ${prosody.arousal > 0.7 ? '(высокое)' : prosody.arousal < 0.3 ? '(низкое)' : '(среднее)'}
+- Валентность (valence): ${prosody.valence.toFixed(2)} ${prosody.valence > 0.3 ? '(позитивная)' : prosody.valence < -0.3 ? '(негативная)' : '(нейтральная)'}
+- Интенсивность: ${prosody.intensity.toFixed(2)} ${prosody.intensity > 0.7 ? '(высокая)' : '(умеренная)'}
+- Темп речи: ${prosody.pace.toFixed(2)} ${prosody.pace > 0.7 ? '(быстрый)' : prosody.pace < 0.3 ? '(медленный)' : '(нормальный)'}
+- Стабильность: ${prosody.stability.toFixed(2)} ${prosody.stability < 0.4 ? '(нестабильный голос)' : '(стабильный)'}`;
+  }
+
+  /**
+   * Analyze voice emotions
+   */
+  private analyzeVoiceEmotions(voiceContext: VoiceContextData): string {
+    const { voiceEmotions } = voiceContext;
+    
+    return `- Стресс: ${voiceEmotions.stress.toFixed(2)} ${voiceEmotions.stress > 0.7 ? '(высокий)' : '(умеренный)'}
+- Вовлеченность: ${voiceEmotions.engagement.toFixed(2)} ${voiceEmotions.engagement < 0.4 ? '(низкая)' : '(нормальная)'}
+- Уверенность: ${voiceEmotions.confidence.toFixed(2)} ${voiceEmotions.confidence < 0.5 ? '(низкая)' : '(нормальная)'}
+- Усталость: ${voiceEmotions.fatigue.toFixed(2)} ${voiceEmotions.fatigue > 0.6 ? '(высокая)' : '(низкая)'}
+- Неопределенность: ${voiceEmotions.uncertainty.toFixed(2)} ${voiceEmotions.uncertainty > 0.6 ? '(высокая)' : '(низкая)'}
+- Аутентичность: ${voiceEmotions.authenticity.toFixed(2)} ${voiceEmotions.authenticity < 0.5 ? '(низкая - возможна маскировка)' : '(нормальная)'}`;
+  }
+
+  /**
+   * Calculate optimal warmth for therapeutic voice
+   */
+  private calculateOptimalWarmth(voiceContext: VoiceContextData): number {
+    const { voiceEmotions } = voiceContext;
+    
+    // Higher stress or lower engagement requires more warmth
+    let warmth = 0.7; // Base warmth
+    
+    if (voiceEmotions.stress > 0.6) warmth += 0.2;
+    if (voiceEmotions.engagement < 0.4) warmth += 0.15;
+    if (voiceEmotions.uncertainty > 0.6) warmth += 0.1;
+    
+    return Math.min(1.0, warmth);
+  }
+
+  /**
+   * Calculate optimal pace for therapeutic voice
+   */
+  private calculateOptimalPace(voiceContext: VoiceContextData): 'slow' | 'normal' | 'fast' {
+    const { prosody, voiceEmotions } = voiceContext;
+    
+    // High stress or fast speech requires slower response
+    if (voiceEmotions.stress > 0.7 || prosody.pace > 0.8) {
+      return 'slow';
+    }
+    
+    // Low engagement might benefit from normal pace
+    if (voiceEmotions.engagement < 0.4) {
+      return 'normal';
+    }
+    
+    return 'normal';
+  }
+
+  /**
+   * Calculate optimal empathy level
+   */
+  private calculateOptimalEmpathy(voiceContext: VoiceContextData, emotionData: EmotionData): number {
+    const { voiceEmotions } = voiceContext;
+    
+    // Base empathy
+    let empathy = 0.8;
+    
+    // Increase empathy for distress
+    if (voiceEmotions.stress > 0.6) empathy += 0.1;
+    if (emotionData.valence < -0.5) empathy += 0.1;
+    if (voiceEmotions.authenticity < 0.5) empathy += 0.05; // Possible emotional hiding
+    
+    return Math.min(1.0, empathy);
   }
 }
 

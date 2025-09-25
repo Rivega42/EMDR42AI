@@ -284,6 +284,301 @@ export interface VoiceAnalysisStatus {
   };
 }
 
+// === Speech-to-Text (STT) Configuration & Interfaces ===
+
+// STT Provider Types
+export type STTProvider = 'openai-whisper' | 'assemblyai' | 'web-speech-api' | 'azure' | 'google-cloud';
+
+// STT Language Support
+export type STTLanguage = 'en' | 'ru' | 'auto' | 'es' | 'fr' | 'de' | 'it' | 'pt' | 'zh' | 'ja' | 'ko';
+
+// STT Processing Mode
+export type STTProcessingMode = 'streaming' | 'batch' | 'hybrid';
+
+// STT Transcription Result
+export interface STTTranscriptionResult {
+  id: string; // Unique identifier for this transcription
+  timestamp: number; // When transcription was generated
+  text: string; // Transcribed text
+  language: STTLanguage; // Detected/specified language
+  confidence: number; // 0-1, confidence in transcription accuracy
+  isFinal: boolean; // true for final results, false for interim
+  
+  // Advanced Features
+  words?: STTWordResult[]; // Word-level timing and confidence
+  segments?: STTSegmentResult[]; // Sentence/phrase segments
+  
+  // Provider-specific data
+  provider: STTProvider;
+  providerData?: any; // Raw provider response for debugging
+  
+  // Audio quality metrics
+  audioQuality: {
+    snr: number; // Signal-to-noise ratio
+    clarity: number; // 0-1, audio clarity score
+    duration: number; // Audio duration in seconds
+  };
+  
+  // Processing metrics
+  processing: {
+    latency: number; // Time from audio to result (ms)
+    processingTime: number; // Actual processing time (ms)
+    queueTime: number; // Time spent in queue (ms)
+  };
+}
+
+// Word-level transcription result
+export interface STTWordResult {
+  word: string;
+  startTime: number; // Start time in seconds
+  endTime: number; // End time in seconds
+  confidence: number; // 0-1, confidence for this word
+  speaker?: string; // Speaker identification (if available)
+}
+
+// Segment-level transcription result (sentences/phrases)
+export interface STTSegmentResult {
+  text: string;
+  startTime: number;
+  endTime: number;
+  confidence: number;
+  type: 'sentence' | 'phrase' | 'clause';
+  punctuation: boolean; // Whether punctuation was added
+}
+
+// STT Service Configuration
+export interface STTServiceConfig {
+  // Provider Configuration
+  providers: {
+    primary: STTProvider;
+    fallback: STTProvider[];
+    enableFailover: boolean;
+    failoverThreshold: number; // Error threshold before switching providers
+  };
+  
+  // Processing Configuration
+  processing: {
+    mode: STTProcessingMode;
+    realTimeEnabled: boolean;
+    batchSizeMs: number; // Batch size in milliseconds
+    bufferSizeMs: number; // Audio buffer size
+    minSilenceDuration: number; // Minimum silence to trigger batch processing
+  };
+  
+  // Language Configuration
+  language: {
+    primary: STTLanguage;
+    autoDetect: boolean;
+    supportedLanguages: STTLanguage[];
+    enableTranslation: boolean; // Translate to primary language
+  };
+  
+  // Quality Configuration
+  quality: {
+    enableVAD: boolean; // Voice Activity Detection
+    vadThreshold: number; // 0-1, voice detection sensitivity
+    enableNoiseSuppression: boolean;
+    enablePunctuation: boolean;
+    enableCapitalization: boolean;
+    enableProfanityFilter: boolean;
+  };
+  
+  // Performance Configuration
+  performance: {
+    maxConcurrentRequests: number;
+    requestTimeout: number; // ms
+    retryCount: number;
+    retryDelay: number; // ms
+    cachingEnabled: boolean;
+    cacheExpiryMs: number;
+  };
+}
+
+// STT Service Status
+export interface STTServiceStatus {
+  isInitialized: boolean;
+  isListening: boolean;
+  isProcessing: boolean;
+  currentProvider: STTProvider;
+  
+  // Connection Status
+  connection: {
+    isConnected: boolean;
+    latency: number; // ms
+    error?: string;
+    lastSuccessfulRequest: number; // timestamp
+  };
+  
+  // Processing Status
+  processing: {
+    queueSize: number; // Number of audio chunks in queue
+    averageLatency: number; // ms
+    successRate: number; // 0-1, success rate over last 100 requests
+    totalProcessed: number; // Total transcriptions processed
+  };
+  
+  // Provider Status
+  providers: Record<STTProvider, {
+    available: boolean;
+    latency: number;
+    errorRate: number;
+    lastUsed: number;
+  }>;
+  
+  // Audio Status
+  audio: {
+    isReceiving: boolean;
+    sampleRate: number;
+    channels: number;
+    quality: number; // 0-1
+    vadState: boolean; // Voice activity detected
+  };
+}
+
+// STT Provider Interface
+export interface STTProviderConfig {
+  provider: STTProvider;
+  apiKey?: string;
+  endpoint?: string;
+  region?: string;
+  
+  // Provider-specific settings
+  settings: {
+    // OpenAI Whisper settings
+    whisper?: {
+      model: 'whisper-1' | 'whisper-large-v2' | 'whisper-large-v3';
+      temperature: number; // 0-1, randomness in output
+      language?: STTLanguage;
+      prompt?: string; // Optional context prompt
+      responseFormat: 'json' | 'text' | 'srt' | 'verbose_json' | 'vtt';
+    };
+    
+    // AssemblyAI settings
+    assemblyai?: {
+      model: 'best' | 'nano';
+      language: STTLanguage;
+      punctuation: boolean;
+      formatText: boolean;
+      dualChannel: boolean;
+      speakerLabels: boolean;
+      contentSafety: boolean;
+      customVocabulary: string[];
+    };
+    
+    // Web Speech API settings
+    webspeech?: {
+      continuous: boolean;
+      interimResults: boolean;
+      maxAlternatives: number;
+      serviceURI?: string;
+      grammars?: string[];
+    };
+    
+    // Azure Speech settings
+    azure?: {
+      subscriptionKey: string;
+      serviceRegion: string;
+      language: STTLanguage;
+      outputFormat: 'simple' | 'detailed';
+      profanityOption: 'masked' | 'removed' | 'raw';
+      enableDictation: boolean;
+    };
+    
+    // Google Cloud Speech settings
+    googlecloud?: {
+      projectId: string;
+      keyFilename?: string;
+      language: STTLanguage;
+      model: 'latest_long' | 'latest_short' | 'command_and_search';
+      useEnhanced: boolean;
+      enablePunctuation: boolean;
+      enableWordTimeOffsets: boolean;
+    };
+  };
+}
+
+// STT Event Types
+export interface STTEvents {
+  onTranscription: (result: STTTranscriptionResult) => void;
+  onInterimResult: (text: string, confidence: number) => void;
+  onStatusChange: (status: STTServiceStatus) => void;
+  onError: (error: STTError) => void;
+  onProviderChange: (newProvider: STTProvider, reason: string) => void;
+  onVoiceActivity: (isActive: boolean, confidence: number) => void;
+}
+
+// STT Error Interface
+export interface STTError {
+  code: string;
+  message: string;
+  provider: STTProvider;
+  timestamp: number;
+  retryable: boolean;
+  details?: any;
+}
+
+// STT Consumer Configuration for AudioStreamMultiplexer
+export interface STTAudioConsumerConfig {
+  id: string;
+  priority: number; // 9 - higher than emotion analysis (7)
+  sampleRate: number; // 16000 Hz recommended for STT
+  channels: number; // 1 (mono)
+  bufferSize: number; // 4096 recommended
+  
+  // STT-specific audio processing
+  processingConfig: {
+    enableVAD: boolean;
+    vadThreshold: number; // 0-1
+    enableNoiseSuppression: boolean;
+    enableEchoCancellation: boolean;
+    enableAutoGainControl: boolean;
+    preProcessingFilters: string[]; // Custom audio filters
+  };
+}
+
+// STT Analytics Interface
+export interface STTAnalytics {
+  sessionId: string;
+  totalTranscriptions: number;
+  totalAudioDuration: number; // seconds
+  averageLatency: number; // ms
+  accuracyScore: number; // 0-1, estimated accuracy
+  languageDistribution: Record<STTLanguage, number>; // percentage per language
+  providerUsage: Record<STTProvider, number>; // usage statistics
+  errorRate: number; // 0-1
+  voiceActivityRatio: number; // 0-1, percentage of time with voice activity
+  
+  // Performance metrics
+  performance: {
+    averageProcessingTime: number; // ms
+    maxProcessingTime: number; // ms
+    minProcessingTime: number; // ms
+    timeouts: number;
+    retries: number;
+    failovers: number;
+  };
+  
+  // Quality metrics
+  quality: {
+    averageConfidence: number; // 0-1
+    averageSnr: number; // Signal-to-noise ratio
+    averageAudioQuality: number; // 0-1
+  };
+}
+
+// Voice Activity Detection (VAD) Interface
+export interface VADResult {
+  timestamp: number;
+  isVoiceActive: boolean;
+  confidence: number; // 0-1, confidence in voice detection
+  energy: number; // Audio energy level
+  spectralFeatures: {
+    zeroCrossingRate: number;
+    spectralCentroid: number;
+    spectralRolloff: number;
+  };
+}
+
 // === Revolutionary 3D BLS Configuration ===
 
 // 3D Movement Patterns - Enhanced for therapeutic effectiveness
@@ -1036,5 +1331,512 @@ export interface MemoryBasedRecommendation extends PersonalizedRecommendation {
     similarSituations: string[];
     effectiveInterventions: string[];
     patientPreferences: string[];
+  };
+}
+
+// === TEXT-TO-SPEECH (TTS) SYSTEM ===
+
+// TTS Provider Types
+export type TTSProvider = 'google-cloud' | 'web-speech' | 'azure' | 'aws-polly' | 'elevenlabs';
+
+// Voice Selection Configuration
+export interface TTSVoiceConfig {
+  name: string; // Voice name (e.g., 'en-US-Wavenet-D')
+  language: string; // Language code (e.g., 'en-US', 'es-ES')
+  gender: 'male' | 'female' | 'neutral';
+  age: 'child' | 'young-adult' | 'adult' | 'elderly';
+  accent: string; // Regional accent (e.g., 'american', 'british', 'australian')
+  characteristics: {
+    warmth: number; // 0-1, how warm/friendly the voice sounds
+    authority: number; // 0-1, how authoritative the voice sounds
+    empathy: number; // 0-1, therapeutic empathy level
+    clarity: number; // 0-1, pronunciation clarity
+    pace: 'slow' | 'normal' | 'fast'; // Natural speaking pace
+    calmness: number; // 0-1, how calming the voice sounds
+  };
+  therapeuticProfile: {
+    anxietyFriendly: boolean; // Good for anxious patients
+    traumaSensitive: boolean; // Appropriate for trauma work
+    childFriendly: boolean; // Suitable for child therapy
+    culturallySensitive: string[]; // Cultural considerations
+  };
+}
+
+// Audio Quality Settings
+export interface TTSAudioQuality {
+  sampleRate: 16000 | 22050 | 24000 | 44100 | 48000; // Hz
+  bitRate: 64 | 128 | 192 | 256 | 320; // kbps
+  format: 'mp3' | 'wav' | 'ogg' | 'aac' | 'webm'; // Audio format
+  channels: 1 | 2; // Mono or stereo
+  compression: 'none' | 'low' | 'medium' | 'high'; // Compression level
+}
+
+// TTS Request Configuration
+export interface TTSSynthesisRequest {
+  text: string;
+  voice: TTSVoiceConfig;
+  quality?: TTSAudioQuality | string; // Allow string for backward compatibility
+  options: {
+    ssmlEnabled: boolean; // Enable SSML markup support
+    speed: number; // 0.25-4.0, speech speed multiplier
+    pitch: number; // -20-20, pitch adjustment in semitones
+    volume: number; // 0-1, volume level
+    emphasis: 'none' | 'reduced' | 'moderate' | 'strong'; // Speech emphasis
+    breaks: {
+      sentence: number; // ms pause between sentences
+      paragraph: number; // ms pause between paragraphs
+      comma: number; // ms pause at commas
+    };
+    format?: string; // Audio format (wav, mp3, etc.)
+  };
+  metadata: {
+    sessionId?: string;
+    patientId?: string;
+    context: 'therapy-response' | 'guidance' | 'emergency' | 'meditation' | 'instruction' | 'preview';
+    priority?: 'low' | 'normal' | 'high' | 'urgent';
+    cacheKey?: string; // For caching identical requests
+    timestamp?: number;
+  };
+}
+
+// TTS Response Data
+export interface TTSSynthesisResponse {
+  audioData: ArrayBuffer | Blob | string; // Audio data (binary or base64)
+  format: string; // Actual audio format returned
+  duration: number; // Audio duration in seconds
+  size: number; // File size in bytes
+  metadata: {
+    provider: TTSProvider;
+    voice: TTSVoiceConfig;
+    quality: TTSAudioQuality;
+    synthesisTime: number; // Time taken to synthesize (ms)
+    fromCache: boolean; // Whether served from cache
+    cacheKey: string; // Cache identifier
+  };
+  streaming?: {
+    isStreamable: boolean; // Whether audio supports streaming
+    chunkSize?: number; // Streaming chunk size
+    chunks?: ArrayBuffer[]; // Audio chunks for streaming
+  };
+}
+
+// TTS Service Status
+export interface TTSServiceStatus {
+  isInitialized: boolean;
+  currentProvider: TTSProvider;
+  fallbackProvider?: TTSProvider;
+  isProcessing: boolean;
+  queueSize: number; // Number of pending requests
+  cacheStatus: {
+    enabled: boolean;
+    size: number; // Current cache size in MB
+    hitRate: number; // 0-1, cache hit rate
+    maxSize: number; // Maximum cache size in MB
+  };
+  providers: {
+    [key in TTSProvider]?: {
+      available: boolean;
+      latency: number; // Average response time in ms
+      errorRate: number; // 0-1, error rate in last hour
+      usage: {
+        requestsToday: number;
+        quotaRemaining?: number;
+        costToday?: number; // USD
+      };
+    };
+  };
+}
+
+// TTS Error Types
+export interface TTSError {
+  type: 'network' | 'quota' | 'authentication' | 'synthesis' | 'format' | 'cache';
+  code: string;
+  message: string;
+  provider: TTSProvider;
+  retryable: boolean;
+  retryAfter?: number; // Seconds to wait before retry
+  details?: any;
+}
+
+// Voice Preview Configuration
+export interface VoicePreviewConfig {
+  sampleText: string; // Text to speak for preview
+  duration: number; // Maximum preview duration in seconds
+  autoPlay: boolean; // Auto-play when voice selected
+  showWaveform: boolean; // Display audio waveform
+}
+
+// TTS Cache Configuration
+export interface TTSCacheConfig {
+  enabled?: boolean;
+  maxSize?: number; // MB
+  maxCacheSize?: number; // Bytes (alternative property name)
+  ttl?: number; // Time to live in seconds
+  expirationTime?: number; // Expiration time in milliseconds
+  strategy?: 'lru' | 'lfu' | 'ttl-based'; // Cache eviction strategy
+  compression?: boolean; // Compress cached audio
+  compressionEnabled?: boolean; // Alternative property name
+  persistToDisk?: boolean; // Persist cache across sessions
+  cacheKeyStrategy?: 'content-hash' | 'text-voice-quality' | 'custom';
+  preloadCommonPhrases?: boolean; // Preload common therapeutic phrases
+  memoryCache?: {
+    maxSize: number; // In-memory cache size in bytes
+    maxEntries: number; // Maximum number of entries in memory
+  };
+  maxEntries?: number; // Maximum total cache entries
+}
+
+// Streaming TTS Configuration
+export interface TTSStreamingConfig {
+  enabled: boolean;
+  chunkSize: number; // Characters per chunk for streaming
+  overlap: number; // Character overlap between chunks
+  bufferSize: number; // Audio buffer size in seconds
+  preload: boolean; // Preload next chunks
+  adaptiveBitrate: boolean; // Adjust quality based on connection
+}
+
+// TTS Service Configuration
+export interface TTSServiceConfig {
+  primaryProvider: TTSProvider;
+  fallbackProviders: TTSProvider[];
+  defaultVoice: TTSVoiceConfig;
+  defaultQuality: TTSAudioQuality;
+  cache: TTSCacheConfig;
+  streaming: TTSStreamingConfig;
+  retry: {
+    maxAttempts: number;
+    backoffMultiplier: number; // Exponential backoff
+    maxBackoffTime: number; // Maximum backoff time in ms
+  };
+  rateLimit: {
+    requestsPerMinute: number;
+    requestsPerHour: number;
+    requestsPerDay: number;
+  };
+  privacy: {
+    storeAudio: boolean;
+    encryptCache: boolean;
+    autoDeleteAfter: number; // Hours
+    logRequests: boolean;
+  };
+}
+
+// Voice Personalization Profile
+export interface VoicePersonalizationProfile {
+  patientId: string;
+  preferredVoices: TTSVoiceConfig[];
+  voiceRatings: Record<string, number>; // Voice name -> rating (0-5)
+  contextualPreferences: {
+    therapy: TTSVoiceConfig;
+    emergency: TTSVoiceConfig;
+    meditation: TTSVoiceConfig;
+    instruction: TTSVoiceConfig;
+  };
+  adaptiveSettings: {
+    speedPreference: number; // Patient's preferred speech speed
+    pitchPreference: number; // Patient's preferred pitch
+    pausePreferences: {
+      sentence: number;
+      paragraph: number;
+    };
+  };
+  accessibility: {
+    hearingImpaired: boolean;
+    preferredVolume: number;
+    needsSlowSpeech: boolean;
+    needsHighClarity: boolean;
+  };
+  culturalSettings: {
+    language: string;
+    dialect?: string;
+    culturalSensitivity: string[];
+  };
+}
+
+// Real-time TTS Control
+export interface TTSPlaybackControl {
+  play(): Promise<void>;
+  pause(): void;
+  stop(): void;
+  seek(position: number): void; // Seek to position in seconds
+  setVolume(volume: number): void; // 0-1
+  setSpeed(speed: number): void; // 0.25-4.0
+  getCurrentTime(): number; // Current playback position
+  getDuration(): number; // Total duration
+  isPlaying(): boolean;
+  isPaused(): boolean;
+}
+
+// TTS Analytics and Metrics
+export interface TTSAnalytics {
+  usage: {
+    totalRequests: number;
+    uniqueTexts: number;
+    totalAudioTime: number; // Seconds
+    avgResponseTime: number; // ms
+    cacheHitRate: number; // 0-1
+  };
+  costs: {
+    totalCost: number; // USD
+    costPerRequest: number;
+    costPerSecond: number;
+    monthlyCost: number;
+  };
+  quality: {
+    userRatings: number[]; // Array of ratings (0-5)
+    avgRating: number;
+    errorRate: number; // 0-1
+    successRate: number; // 0-1
+  };
+  performance: {
+    avgSynthesisTime: number; // ms
+    avgFirstByteTime: number; // ms for streaming
+    p95ResponseTime: number; // 95th percentile
+    throughput: number; // Requests per second
+  };
+}
+
+// TTS Integration with AI Therapist
+export interface TherapistTTSConfig {
+  personalityVoice: TTSVoiceConfig; // Main therapist voice
+  alternateVoices: TTSVoiceConfig[]; // For variety/different contexts
+  emotionalAdaptation: {
+    enabled: boolean;
+    voiceForAnxiety: TTSVoiceConfig;
+    voiceForDepression: TTSVoiceConfig;
+    voiceForTrauma: TTSVoiceConfig;
+    voiceForCelebration: TTSVoiceConfig;
+  };
+  contextualBehavior: {
+    emergency: {
+      voice: TTSVoiceConfig;
+      speed: number; // Faster for urgency
+      priority: 'urgent';
+    };
+    meditation: {
+      voice: TTSVoiceConfig;
+      speed: number; // Slower for relaxation
+      extraPauses: boolean;
+    };
+    instruction: {
+      voice: TTSVoiceConfig;
+      clarity: 'high';
+      repetition: boolean; // Repeat important parts
+    };
+  };
+}
+
+// === MISSING TTS TYPES ===
+
+// TTS Cache Entry for individual cached audio files
+export interface TTSCacheEntry {
+  key: string;
+  audioData: ArrayBuffer;
+  metadata: {
+    text: string;
+    voice: TTSVoiceConfig;
+    quality: TTSAudioQuality;
+    context: string;
+    synthesisTime: number;
+    provider: TTSProvider;
+    timestamp: number;
+    accessCount: number;
+    lastAccessed: number;
+    size: number;
+    format?: string; // Audio format
+    originalDuration?: number; // Original audio duration
+    cacheKey?: string; // Cache identifier
+    cachedAt?: number; // When it was cached
+  };
+  expiry: number; // Timestamp when entry expires
+  size?: number; // Entry size (alternative location)
+}
+
+// TTS Cache Statistics
+export interface TTSCacheStats {
+  hits: number;
+  misses: number;
+  evictions: number;
+  totalSize: number; // Total cache size in bytes
+  entryCount: number;
+  hitRate: number; // 0-1, calculated hit rate
+  avgResponseTime: number; // Average cache response time in ms
+  totalRequests: number;
+  oldestEntry?: number; // Timestamp of oldest cached entry
+  newestEntry?: number; // Timestamp of newest cached entry
+}
+
+// Voice Profile for therapeutic contexts
+export interface TTSVoiceProfile {
+  name: string;
+  characteristics: {
+    warmth: number; // 0-1
+    authority: number; // 0-1
+    empathy: number; // 0-1
+    clarity: number; // 0-1
+    calmness: number; // 0-1
+    professionalism: number; // 0-1
+  };
+  therapeuticSuitability: {
+    anxiety: number; // 0-1, suitability for anxiety disorders
+    trauma: number; // 0-1, suitability for trauma therapy
+    children: number; // 0-1, suitability for child therapy
+    depression: number; // 0-1, suitability for depression therapy
+    grief: number; // 0-1, suitability for grief counseling
+  };
+  demographicAlignment: {
+    gender: 'male' | 'female' | 'neutral';
+    ageGroup: 'young' | 'middle' | 'mature';
+    accent: string;
+    cultural: string[];
+  };
+  effectivenessRating: number; // 0-1, overall therapeutic effectiveness
+}
+
+// Voice Personalization Configuration
+export interface TTSPersonalizationConfig {
+  enablePersonalization?: boolean;
+  learningEnabled?: boolean;
+  adaptationRate?: number; // 0-1, how quickly to adapt preferences
+  culturalSensitivity?: boolean;
+  accessibilityOptimization?: boolean;
+  voiceEffectivenessTracking?: boolean;
+  minSessionsForLearning?: number;
+  confidenceThreshold?: number; // 0-1, minimum confidence for recommendations
+  diversityFactor?: number; // 0-1, balance between personalization and diversity
+}
+
+// Patient Voice Preferences
+export interface TTSPersonalizationPreferences {
+  genderPreference?: 'male' | 'female' | 'neutral' | 'no-preference';
+  agePreference?: 'young' | 'middle' | 'mature' | 'no-preference';
+  languagePreference: string; // Language code
+  accentPreference?: string;
+  culturalBackground?: string;
+  therapeuticContext?: string; // Primary therapeutic context
+  accessibilityNeeds?: {
+    hearingImpaired: boolean;
+    needsSlowSpeech: boolean;
+    needsHighClarity: boolean;
+    preferredVolume: number; // 0-1
+  };
+  emotionalPreferences?: {
+    preferWarmVoices: boolean;
+    preferCalmVoices: boolean;
+    preferAuthoritativeVoices: boolean;
+  };
+}
+
+// Voice Recommendation with confidence and reasoning
+export interface TTSVoiceRecommendation {
+  primary: {
+    voice: TTSVoiceConfig;
+    confidence: number; // 0-1, confidence in this recommendation
+    reasoning: string; // Why this voice was recommended
+  };
+  alternatives: Array<{
+    voice: TTSVoiceConfig;
+    confidence: number;
+    reasoning: string;
+  }>;
+  contextualFactors: {
+    therapeuticPhase: string;
+    patientEmotionalState: string;
+    sessionProgress: number; // 0-1
+    previousVoiceEffectiveness?: number; // 0-1
+  };
+  personalizationData: {
+    basedOnHistory: boolean;
+    learningProgress: number; // 0-1, how much we've learned about patient
+    confidenceImprovement: number; // How much confidence has improved
+  };
+}
+
+// Voice Effectiveness Metrics
+export interface VoiceEffectivenessMetrics {
+  overallRating: number; // 0-1, overall effectiveness score
+  patientEngagement: number; // 0-1, how engaging patients find this voice
+  therapeuticOutcomes: {
+    anxietyReduction: number; // 0-1, effectiveness for anxiety
+    traumaProcessing: number; // 0-1, effectiveness for trauma
+    emotionalRegulation: number; // 0-1, effectiveness for emotional regulation
+    sessionCompletion: number; // 0-1, session completion rate with this voice
+  };
+  patientFeedback: {
+    averageRating: number; // 1-5, direct patient ratings
+    totalRatings: number;
+    positiveResponses: number; // Number of positive responses
+    negativeResponses: number; // Number of negative responses
+  };
+  clinicalMetrics: {
+    sudsImprovement: number; // Average SUDS improvement with this voice
+    vocImprovement: number; // Average VOC improvement with this voice
+    sessionDuration: number; // Average session duration in minutes
+    dropoutRate: number; // 0-1, dropout rate when using this voice
+  };
+  contextualEffectiveness: {
+    preparation: number; // 0-1, effectiveness in preparation phase
+    assessment: number; // 0-1, effectiveness in assessment phase
+    desensitization: number; // 0-1, effectiveness in desensitization phase
+    installation: number; // 0-1, effectiveness in installation phase
+    closure: number; // 0-1, effectiveness in closure phase
+  };
+  lastUpdated: number; // Timestamp of last metrics update
+  patientSatisfaction?: number; // Alternative property name
+  clinicalEffectiveness?: number; // Alternative property name
+  usageCount?: number; // Number of times used
+}
+
+// === ADDITIONAL TTS PROVIDER CONFIGURATIONS ===
+
+// Google Cloud TTS Configuration
+export interface GoogleCloudTTSConfig {
+  apiKey?: string;
+  projectId?: string;
+  timeout?: number;
+  retryAttempts?: number;
+  serverEndpoint?: string; // Server endpoint for API calls
+  region?: string;
+}
+
+// Web Speech TTS Configuration
+export interface WebSpeechTTSConfig {
+  preferLocalVoices?: boolean;
+  qualityEnhancement?: {
+    enabled: boolean;
+    normalizeVolume: boolean;
+    reduceBgNoise: boolean; // Background noise reduction
+    enhanceClarity: boolean;
+  };
+}
+
+// Updated TTS Service Configuration
+export interface TTSServiceConfig {
+  primaryProvider?: TTSProvider;
+  fallbackProviders?: TTSProvider[];
+  defaultVoice?: TTSVoiceConfig;
+  defaultQuality?: TTSAudioQuality;
+  cache?: TTSCacheConfig;
+  streaming?: TTSStreamingConfig;
+  providers?: any[]; // Array of provider instances
+  fallbackEnabled?: boolean;
+  cacheService?: any;
+  personalizationService?: any;
+  retry?: {
+    maxAttempts: number;
+    backoffMultiplier: number; // Exponential backoff
+    maxBackoffTime: number; // Maximum backoff time in ms
+  };
+  rateLimit?: {
+    requestsPerMinute: number;
+    requestsPerHour: number;
+    requestsPerDay: number;
+  };
+  privacy?: {
+    storeAudio: boolean;
+    encryptCache: boolean;
+    autoDeleteAfter: number; // Hours
+    logRequests: boolean;
   };
 }

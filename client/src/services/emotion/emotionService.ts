@@ -99,6 +99,11 @@ export class UnifiedEmotionService {
   private audioConsumerId: string | null = null;
   private usingMultiplexer: boolean = false;
   
+  // === Voice Session Support ===
+  private isInVoiceSession: boolean = false;
+  private voiceSessionCallbacks: Set<(emotion: EmotionData) => void> = new Set();
+  private realTimeEmotionCallback: ((emotion: EmotionData) => void) | null = null;
+  
   // Current state
   private currentMode: 'face-only' | 'voice-only' | 'multimodal' | 'fallback' = 'face-only';
   private latestFaceData: FaceEmotionData | null = null;
@@ -773,8 +778,26 @@ export class UnifiedEmotionService {
     this.latestFusedEmotion = emotion;
     this.metrics.totalEmotions++;
     
+    // Standard emotion callback
     if (this.onEmotionCallback) {
       this.onEmotionCallback(emotion);
+    }
+    
+    // Voice session specific callbacks
+    if (this.isInVoiceSession) {
+      // Real-time callback for immediate processing
+      if (this.realTimeEmotionCallback) {
+        this.realTimeEmotionCallback(emotion);
+      }
+      
+      // Notify all voice session callbacks
+      this.voiceSessionCallbacks.forEach(callback => {
+        try {
+          callback(emotion);
+        } catch (error) {
+          console.error('Error in voice session callback:', error);
+        }
+      });
     }
   }
   
@@ -833,11 +856,119 @@ export class UnifiedEmotionService {
     }
   }
   
+  // === Voice Session Support Methods ===
+  
+  /**
+   * Start voice session mode - optimized for continuous emotion analysis during voice chat
+   */
+  async startVoiceSession(realTimeCallback?: (emotion: EmotionData) => void): Promise<void> {
+    if (this.isInVoiceSession) {
+      console.warn('Voice session already active');
+      return;
+    }
+    
+    try {
+      this.isInVoiceSession = true;
+      this.realTimeEmotionCallback = realTimeCallback || null;
+      
+      // Ensure emotion recognition is running with optimal config for voice sessions
+      if (!this.isActive) {
+        await this.startRecognition();
+      }
+      
+      // Switch to multimodal mode for comprehensive analysis during voice conversations
+      if (this.currentMode !== 'multimodal' && this.config.multimodal.enabled) {
+        await this.switchMode('multimodal');
+      }
+      
+      // If using multiplexer, ensure high priority for emotion analysis during voice sessions
+      if (this.usingMultiplexer && this.audioMultiplexer && this.audioConsumerId) {
+        await this.audioMultiplexer.updateConsumer(this.audioConsumerId, { 
+          priority: this.config.audio.consumerPriority + 1 // Boost priority during voice sessions
+        });
+      }
+      
+      console.log('✅ Voice session started - emotion analysis optimized for voice conversation');
+      
+    } catch (error) {
+      console.error('Failed to start voice session:', error);
+      this.isInVoiceSession = false;
+      throw error;
+    }
+  }
+  
+  /**
+   * Stop voice session mode
+   */
+  async stopVoiceSession(): Promise<void> {
+    if (!this.isInVoiceSession) {
+      return;
+    }
+    
+    try {
+      this.isInVoiceSession = false;
+      this.realTimeEmotionCallback = null;
+      this.voiceSessionCallbacks.clear();
+      
+      // Restore normal priority
+      if (this.usingMultiplexer && this.audioMultiplexer && this.audioConsumerId) {
+        await this.audioMultiplexer.updateConsumer(this.audioConsumerId, { 
+          priority: this.config.audio.consumerPriority
+        });
+      }
+      
+      console.log('Voice session stopped');
+      
+    } catch (error) {
+      console.error('Failed to stop voice session:', error);
+    }
+  }
+  
+  /**
+   * Add callback for voice session emotion updates
+   */
+  addVoiceSessionCallback(callback: (emotion: EmotionData) => void): () => void {
+    this.voiceSessionCallbacks.add(callback);
+    return () => this.voiceSessionCallbacks.delete(callback);
+  }
+  
+  /**
+   * Check if currently in voice session
+   */
+  isVoiceSessionActive(): boolean {
+    return this.isInVoiceSession;
+  }
+  
+  /**
+   * Get emotion data with voice session optimizations
+   */
+  getVoiceSessionEmotion(): EmotionData | null {
+    const emotion = this.getCurrentEmotion();
+    if (!emotion || !this.isInVoiceSession) {
+      return emotion;
+    }
+    
+    // Add voice session metadata
+    return {
+      ...emotion,
+      sources: {
+        ...emotion.sources,
+        voiceSessionActive: true
+      }
+    } as EmotionData;
+  }
+  
   /**
    * Cleanup resources
    */
   async destroy(): Promise<void> {
+    await this.stopVoiceSession();
     await this.stopRecognition();
+    
+    // Remove from AudioStreamMultiplexer if using it
+    if (this.usingMultiplexer && this.audioMultiplexer && this.audioConsumerId) {
+      await this.audioMultiplexer.removeConsumer(this.audioConsumerId);
+    }
     
     if (this.voiceService) {
       await this.voiceService.destroy();
@@ -850,6 +981,7 @@ export class UnifiedEmotionService {
     this.onEmotionCallback = null;
     this.onStatusCallback = null;
     this.onErrorCallback = null;
+    this.voiceSessionCallbacks.clear();
     
     console.log('Unified Emotion Service destroyed');
   }
