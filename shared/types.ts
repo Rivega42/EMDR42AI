@@ -117,6 +117,121 @@ export interface FaceEmotionData {
   landmarks?: any; // Facial landmarks data
 }
 
+// === AudioStreamMultiplexer Configuration & Interfaces ===
+
+export interface AudioConsumer {
+  id: string;
+  name: string;
+  type: 'emotion-analysis' | 'voice-chat' | 'recording' | 'other';
+  priority: number; // 1-10, higher priority gets better audio quality
+  active: boolean;
+  
+  // Audio processing configuration
+  config: {
+    sampleRate?: number; // Default: 16000 Hz
+    channels?: number; // Default: 1 (mono)
+    bufferSize?: number; // Default: 4096
+    enableEchoCancellation?: boolean; // Default: true
+    enableNoiseSuppression?: boolean; // Default: true
+    enableAutoGainControl?: boolean; // Default: true
+  };
+  
+  // Callback for receiving audio data
+  onAudioData?: (audioData: Float32Array, sampleRate: number) => void;
+  onAudioChunk?: (audioChunk: Blob) => void;
+  onStatusChange?: (status: AudioConsumerStatus) => void;
+  onError?: (error: string) => void;
+}
+
+export interface AudioConsumerStatus {
+  consumerId: string;
+  isActive: boolean;
+  isReceivingAudio: boolean;
+  sampleRate: number;
+  channels: number;
+  latency: number; // milliseconds
+  quality: number; // 0-1, audio quality score
+  packetsReceived: number;
+  packetsLost: number;
+  lastUpdate: number;
+  error?: string;
+}
+
+export interface AudioStreamMultiplexerConfig {
+  // Master audio configuration
+  masterAudio: {
+    sampleRate: number; // 16000, 22050, 44100, 48000
+    channels: number; // 1 for mono, 2 for stereo
+    bufferSize: number; // 1024, 2048, 4096, 8192
+    echoCancellation: boolean;
+    noiseSuppression: boolean;
+    autoGainControl: boolean;
+  };
+  
+  // Consumer management
+  consumers: {
+    maxConsumers: number; // Default: 5
+    priorityScheduling: boolean; // Higher priority consumers get better resources
+    adaptiveQuality: boolean; // Adjust quality based on system load
+  };
+  
+  // Performance optimization
+  performance: {
+    enableWebWorker: boolean; // Process audio in worker thread
+    enableVAD: boolean; // Voice Activity Detection to reduce processing
+    vadThreshold: number; // 0-1, voice detection threshold
+    maxLatency: number; // Maximum acceptable latency in ms
+    dropFramesOnOverload: boolean; // Drop frames when system overloaded
+  };
+  
+  // Error handling and fallback
+  fallback: {
+    enableFallback: boolean;
+    fallbackSampleRate: number; // Lower quality fallback
+    maxRetries: number;
+    retryDelay: number; // milliseconds
+  };
+}
+
+export interface AudioStreamMultiplexerStatus {
+  isInitialized: boolean;
+  isStreaming: boolean;
+  masterStream: {
+    sampleRate: number;
+    channels: number;
+    quality: number; // 0-1
+    latency: number; // milliseconds
+  };
+  
+  consumers: AudioConsumerStatus[];
+  activeConsumers: number;
+  
+  performance: {
+    cpuUsage: number; // 0-100
+    memoryUsage: number; // MB
+    audioDrops: number;
+    totalProcessed: number; // Total audio frames processed
+    averageLatency: number;
+  };
+  
+  health: {
+    isHealthy: boolean;
+    issues: string[];
+    lastCheck: number;
+  };
+}
+
+export interface AudioStreamMultiplexerMetrics {
+  uptime: number; // seconds
+  totalConsumers: number;
+  totalAudioFrames: number;
+  droppedFrames: number;
+  averageLatency: number;
+  peakLatency: number;
+  errorCount: number;
+  consumerSwitches: number;
+}
+
 // Voice Provider Configuration
 export interface VoiceProviderConfig {
   provider: 'assemblyai' | 'hume-ai' | 'azure' | 'google-cloud';

@@ -16,6 +16,8 @@ import type {
 import { FaceRecognitionService } from './faceRecognition';
 import { VoiceRecognitionService, voiceRecognitionService } from './voiceRecognition';
 import { EmotionFusionService, emotionFusionService, defaultFusionConfig } from './emotionFusion';
+import { AudioStreamMultiplexer, getAudioStreamMultiplexer } from '../audio/audioStreamMultiplexer';
+import type { AudioConsumer, AudioStreamMultiplexerConfig } from '@/../../shared/types';
 
 // === Unified Emotion Service Configuration ===
 
@@ -38,6 +40,13 @@ export interface UnifiedEmotionConfig {
     targetLatency: number; // ms
     maxMemoryUsage: number; // MB
     enableOptimizations: boolean;
+  };
+  // === NEW: AudioStreamMultiplexer Integration ===
+  audio: {
+    useMultiplexer: boolean; // Enable multiplexed audio for conflict-free access
+    multiplexerConfig?: Partial<AudioStreamMultiplexerConfig>;
+    consumerPriority: number; // 1-10, emotion analysis priority
+    consumerName: string; // Friendly name for this consumer
   };
 }
 
@@ -84,6 +93,11 @@ export class UnifiedEmotionService {
   private config: UnifiedEmotionConfig;
   private isActive: boolean = false;
   private startTime: number = 0;
+  
+  // === NEW: AudioStreamMultiplexer Integration ===
+  private audioMultiplexer: AudioStreamMultiplexer | null = null;
+  private audioConsumerId: string | null = null;
+  private usingMultiplexer: boolean = false;
   
   // Current state
   private currentMode: 'face-only' | 'voice-only' | 'multimodal' | 'fallback' = 'face-only';
@@ -164,6 +178,11 @@ export class UnifiedEmotionService {
       // Determine optimal mode based on capabilities and config
       await this.determineOptimalMode();
       
+      // === NEW: Initialize AudioStreamMultiplexer if enabled ===
+      if (this.config.audio.useMultiplexer && this.shouldUseVoice()) {
+        await this.initializeAudioMultiplexer();
+      }
+      
       // Initialize face service if needed
       if (this.shouldUseFace() && videoElement) {
         await this.faceService.initialize(videoElement);
@@ -172,14 +191,20 @@ export class UnifiedEmotionService {
       
       // Initialize voice service if needed
       if (this.shouldUseVoice()) {
-        await this.voiceService.initialize();
-        console.log('Voice recognition initialized');
+        if (this.usingMultiplexer) {
+          // Voice service will use multiplexer's audio stream
+          console.log('Voice recognition will use AudioStreamMultiplexer');
+        } else {
+          // Traditional voice service initialization
+          await this.voiceService.initialize();
+          console.log('Voice recognition initialized (traditional mode)');
+        }
       }
       
       // Update fusion configuration
       this.fusionService.updateConfig(this.config.fusion);
       
-      console.log(`Unified Emotion Service initialized in ${this.currentMode} mode`);
+      console.log(`Unified Emotion Service initialized in ${this.currentMode} mode${this.usingMultiplexer ? ' with AudioStreamMultiplexer' : ''}`);
       this.updateStatus();
       
     } catch (error) {
@@ -202,6 +227,12 @@ export class UnifiedEmotionService {
       this.isActive = true;
       this.startTime = Date.now();
       
+      // === NEW: Start AudioStreamMultiplexer if using it ===
+      if (this.usingMultiplexer && this.audioMultiplexer) {
+        await this.audioMultiplexer.startStreaming();
+        console.log('AudioStreamMultiplexer started streaming');
+      }
+      
       // Start face recognition
       if (this.shouldUseFace()) {
         this.faceService.startRecognition((faceEmotion: EmotionData) => {
@@ -220,10 +251,16 @@ export class UnifiedEmotionService {
       
       // Start voice recognition
       if (this.shouldUseVoice()) {
-        await this.voiceService.startRecording();
+        if (this.usingMultiplexer) {
+          // Voice recognition is already receiving audio via multiplexer
+          console.log('Voice recognition using multiplexed audio stream');
+        } else {
+          // Traditional voice service recording
+          await this.voiceService.startRecording();
+        }
       }
       
-      console.log(`Emotion recognition started in ${this.currentMode} mode`);
+      console.log(`Emotion recognition started in ${this.currentMode} mode${this.usingMultiplexer ? ' with AudioStreamMultiplexer' : ''}`);
       this.updateStatus();
       
     } catch (error) {
@@ -251,8 +288,16 @@ export class UnifiedEmotionService {
       }
       
       // Stop voice recognition
-      if (this.voiceService) {
+      if (this.voiceService && !this.usingMultiplexer) {
+        // Only stop voice service if not using multiplexer
         await this.voiceService.stopRecording();
+      }
+      
+      // === NEW: Remove consumer from multiplexer but keep it running ===
+      if (this.usingMultiplexer && this.audioMultiplexer && this.audioConsumerId) {
+        // Deactivate consumer instead of stopping entire multiplexer
+        await this.audioMultiplexer.updateConsumer(this.audioConsumerId, { active: false });
+        console.log('Deactivated AudioStreamMultiplexer consumer');
       }
       
       // Reset fusion service
@@ -386,6 +431,188 @@ export class UnifiedEmotionService {
   }
   
   // === Private Helper Methods ===
+  
+  /**
+   * === NEW: Initialize AudioStreamMultiplexer ===
+   */
+  private async initializeAudioMultiplexer(): Promise<void> {
+    try {
+      // Get or create global multiplexer instance
+      this.audioMultiplexer = getAudioStreamMultiplexer(this.config.audio.multiplexerConfig);
+      
+      // Initialize the multiplexer if not already done
+      if (!this.audioMultiplexer.getStatus().isInitialized) {
+        await this.audioMultiplexer.initializeStream();
+        console.log('AudioStreamMultiplexer initialized');
+      }
+      
+      // Create audio consumer for emotion analysis
+      const consumerId = `emotion-analysis-${Date.now()}`;
+      const consumer: AudioConsumer = {
+        id: consumerId,
+        name: this.config.audio.consumerName,
+        type: 'emotion-analysis',
+        priority: this.config.audio.consumerPriority,
+        active: true,
+        config: {
+          sampleRate: 16000,
+          channels: 1,
+          bufferSize: 4096,
+          enableEchoCancellation: true,
+          enableNoiseSuppression: true,
+          enableAutoGainControl: true
+        },
+        // Audio data callback - integrate with voice service
+        onAudioData: (audioData: Float32Array, sampleRate: number) => {
+          this.handleMultiplexedAudioData(audioData, sampleRate);
+        },
+        onAudioChunk: (audioChunk: Blob) => {
+          this.handleMultiplexedAudioChunk(audioChunk);
+        },
+        onStatusChange: (status) => {
+          console.log('Emotion analysis consumer status:', status);
+        },
+        onError: (error) => {
+          console.error('Emotion analysis consumer error:', error);
+          this.handleError(`Audio consumer error: ${error}`);
+        }
+      };
+      
+      // Add consumer to multiplexer
+      const success = await this.audioMultiplexer.addConsumer(consumer);
+      if (success) {
+        this.audioConsumerId = consumerId;
+        this.usingMultiplexer = true;
+        console.log(`✅ Added emotion analysis consumer to AudioStreamMultiplexer: ${consumerId}`);
+      } else {
+        throw new Error('Failed to add consumer to AudioStreamMultiplexer');
+      }
+      
+    } catch (error) {
+      console.error('Failed to initialize AudioStreamMultiplexer:', error);
+      this.usingMultiplexer = false;
+      // Fallback to traditional voice service
+      console.log('Falling back to traditional voice service');
+    }
+  }
+  
+  /**
+   * === NEW: Handle multiplexed audio data ===
+   */
+  private handleMultiplexedAudioData(audioData: Float32Array, sampleRate: number): void {
+    // This method bridges the multiplexer audio to the voice recognition service
+    try {
+      // Convert Float32Array to format expected by voice service
+      // For now, we'll trigger the existing voice emotion callbacks
+      // In a full implementation, this would integrate more deeply with VoiceRecognitionService
+      
+      if (this.voiceService && this.isActive) {
+        // Create a simple voice emotion from audio characteristics
+        const voiceEmotion = this.createVoiceEmotionFromAudioData(audioData, sampleRate);
+        
+        // Trigger the existing voice emotion handler
+        this.latestVoiceData = voiceEmotion;
+        this.metrics.voiceEmotions++;
+        
+        if (this.config.fusion.enabled) {
+          this.fusionService.addVoiceData(voiceEmotion);
+        } else if (this.currentMode === 'voice-only') {
+          const emotion = this.createVoiceOnlyEmotion(voiceEmotion);
+          this.emitEmotion(emotion);
+        }
+      }
+      
+    } catch (error) {
+      console.error('Error handling multiplexed audio data:', error);
+    }
+  }
+  
+  /**
+   * === NEW: Handle multiplexed audio chunks ===
+   */
+  private handleMultiplexedAudioChunk(audioChunk: Blob): void {
+    // This method can be used for chunk-based processing
+    try {
+      // For compatibility with existing voice providers that expect Blob chunks
+      if (this.voiceService && typeof (this.voiceService as any).processMultiplexedAudio === 'function') {
+        (this.voiceService as any).processMultiplexedAudio(audioChunk);
+      }
+    } catch (error) {
+      console.error('Error handling multiplexed audio chunk:', error);
+    }
+  }
+  
+  /**
+   * === NEW: Create voice emotion from raw audio data ===
+   */
+  private createVoiceEmotionFromAudioData(audioData: Float32Array, sampleRate: number): VoiceEmotionData {
+    // Simple audio analysis for voice emotion
+    // In production, this would use more sophisticated algorithms
+    
+    // Calculate basic audio features
+    let sum = 0;
+    let sumSquares = 0;
+    let maxAmplitude = 0;
+    let zeroCrossings = 0;
+    let prevSample = 0;
+    
+    for (let i = 0; i < audioData.length; i++) {
+      const sample = audioData[i];
+      sum += Math.abs(sample);
+      sumSquares += sample * sample;
+      maxAmplitude = Math.max(maxAmplitude, Math.abs(sample));
+      
+      // Zero crossings (rough pitch indicator)
+      if ((sample >= 0) !== (prevSample >= 0)) {
+        zeroCrossings++;
+      }
+      prevSample = sample;
+    }
+    
+    const rms = Math.sqrt(sumSquares / audioData.length);
+    const averageAmplitude = sum / audioData.length;
+    const zcr = zeroCrossings / audioData.length;
+    
+    // Map audio features to emotional dimensions
+    const arousal = Math.min(1, rms * 10); // Energy maps to arousal
+    const valence = Math.max(-1, Math.min(1, (averageAmplitude - 0.1) * 5)); // Amplitude bias maps to valence
+    const intensity = maxAmplitude;
+    const pace = Math.min(1, zcr * 0.1); // Zero crossings relate to speech pace
+    
+    return {
+      timestamp: Date.now(),
+      prosody: {
+        arousal: arousal,
+        valence: valence,
+        intensity: intensity,
+        pace: pace,
+        volume: averageAmplitude,
+        pitch: zcr * 0.01, // Rough pitch estimation
+        stability: 1 - (maxAmplitude - averageAmplitude) // Voice stability
+      },
+      voiceEmotions: {
+        confidence: 0.7, // Medium confidence for simplified analysis
+        excitement: Math.max(0, arousal * valence),
+        stress: Math.max(0, arousal * (1 - valence)),
+        fatigue: Math.max(0, 1 - arousal),
+        engagement: arousal,
+        uncertainty: Math.max(0, 0.5 - Math.abs(valence)),
+        authenticity: 0.8 // Assume authentic for real audio
+      },
+      provider: 'multiplexer',
+      confidence: 0.7,
+      rawData: {
+        sampleRate,
+        audioFeatures: {
+          rms,
+          averageAmplitude,
+          maxAmplitude,
+          zeroCrossings,
+          zcr
+        }
+      }
+    };
+  }
   
   /**
    * Determine optimal mode based on capabilities and configuration

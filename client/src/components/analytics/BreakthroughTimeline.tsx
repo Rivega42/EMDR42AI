@@ -648,7 +648,7 @@ export function BreakthroughTimeline({ patientId, sessionId, className, showPred
     return min + normalized * (max - min);
   };
 
-  const deterministicArraySelect = <T>(array: T[], seed: string): T => {
+  const deterministicArraySelect = function<T>(array: T[], seed: string): T {
     const value = deterministicValue(seed, 0, array.length);
     return array[Math.floor(value)];
   };
