@@ -163,12 +163,17 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const user: User = { 
       id,
-      username: insertUser.username,
-      password: insertUser.password,
+      username: insertUser.username ?? null,
       role: insertUser.role || 'patient',
       email: insertUser.email ?? null,
-      fullName: insertUser.fullName ?? null,
-      createdAt: new Date()
+      firstName: insertUser.firstName ?? null,
+      lastName: insertUser.lastName ?? null,
+      profileImageUrl: null,
+      specialization: null,
+      licenseNumber: null,
+      clinicalLevel: null,
+      createdAt: new Date(),
+      updatedAt: new Date()
     };
     this.users.set(id, user);
     return user;
@@ -198,7 +203,6 @@ export class MemStorage implements IStorage {
         profileImageUrl: userData.profileImageUrl,
         role: 'patient', // Default role for new Replit users
         username: null,
-        password: null,
         specialization: null,
         licenseNumber: null,
         clinicalLevel: null,
@@ -548,6 +552,25 @@ export class MemStorage implements IStorage {
     
     return breakthroughs.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
   }
+
+  // Analytics Support Methods
+  async getAllPatients(): Promise<User[]> {
+    return Array.from(this.users.values())
+      .filter(user => user.role === 'patient')
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  async getRecentSnapshots(limit: number = 100): Promise<SessionMemorySnapshot[]> {
+    const allSnapshots = Array.from(this.sessionSnapshots.values());
+    return allSnapshots
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+      .slice(0, limit);
+  }
+
+  async getAllBreakthroughs(): Promise<BreakthroughMoment[]> {
+    return Array.from(this.breakthroughMoments.values())
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+  }
   
   // Memory Insights
   async createMemoryInsight(insight: InsertMemoryInsight): Promise<MemoryInsight> {
@@ -560,7 +583,7 @@ export class MemStorage implements IStorage {
       insightData: insight.insightData,
       confidence: insight.confidence,
       relevanceScore: insight.relevanceScore,
-      actionable: insight.actionable,
+      actionable: insight.actionable ?? false,
       recommendations: insight.recommendations ?? null,
       dataSource: insight.dataSource ?? null,
       calculationMethod: insight.calculationMethod ?? null,
@@ -812,16 +835,16 @@ export class DbStorage implements IStorage {
   }
   
   async getSnapshotsByPatient(patientId: string, limit?: number): Promise<SessionMemorySnapshot[]> {
-    let query = db.select()
+    const baseQuery = db.select()
       .from(sessionMemorySnapshots)
       .where(eq(sessionMemorySnapshots.patientId, patientId))
       .orderBy(desc(sessionMemorySnapshots.timestamp));
     
     if (limit) {
-      query = query.limit(limit);
+      return await baseQuery.limit(limit);
     }
     
-    return await query;
+    return await baseQuery;
   }
   
   async getSnapshotsByType(patientId: string, snapshotType: string): Promise<SessionMemorySnapshot[]> {
@@ -842,18 +865,17 @@ export class DbStorage implements IStorage {
   }
   
   async getProgressMetrics(patientId: string, metricType?: string): Promise<ProgressMetric[]> {
-    let query = db.select()
+    const whereConditions = metricType 
+      ? and(
+          eq(progressMetrics.patientId, patientId),
+          eq(progressMetrics.metricType, metricType)
+        )
+      : eq(progressMetrics.patientId, patientId);
+    
+    return await db.select()
       .from(progressMetrics)
-      .where(eq(progressMetrics.patientId, patientId));
-    
-    if (metricType) {
-      query = query.where(and(
-        eq(progressMetrics.patientId, patientId),
-        eq(progressMetrics.metricType, metricType)
-      ));
-    }
-    
-    return await query.orderBy(desc(progressMetrics.calculatedAt));
+      .where(whereConditions)
+      .orderBy(desc(progressMetrics.calculatedAt));
   }
   
   async getLatestProgressMetric(patientId: string, metricType: string): Promise<ProgressMetric | undefined> {
@@ -915,16 +937,16 @@ export class DbStorage implements IStorage {
   }
   
   async getBreakthroughsByPatient(patientId: string, limit?: number): Promise<BreakthroughMoment[]> {
-    let query = db.select()
+    const baseQuery = db.select()
       .from(breakthroughMoments)
       .where(eq(breakthroughMoments.patientId, patientId))
       .orderBy(desc(breakthroughMoments.timestamp));
     
     if (limit) {
-      query = query.limit(limit);
+      return await baseQuery.limit(limit);
     }
     
-    return await query;
+    return await baseQuery;
   }
   
   // Memory Insights
@@ -934,18 +956,17 @@ export class DbStorage implements IStorage {
   }
   
   async getMemoryInsights(patientId: string, insightType?: string): Promise<MemoryInsight[]> {
-    let query = db.select()
+    const whereConditions = insightType 
+      ? and(
+          eq(memoryInsights.patientId, patientId),
+          eq(memoryInsights.insightType, insightType)
+        )
+      : eq(memoryInsights.patientId, patientId);
+    
+    return await db.select()
       .from(memoryInsights)
-      .where(eq(memoryInsights.patientId, patientId));
-    
-    if (insightType) {
-      query = query.where(and(
-        eq(memoryInsights.patientId, patientId),
-        eq(memoryInsights.insightType, insightType)
-      ));
-    }
-    
-    return await query.orderBy(desc(memoryInsights.calculatedAt));
+      .where(whereConditions)
+      .orderBy(desc(memoryInsights.calculatedAt));
   }
   
   async getActiveInsights(patientId: string): Promise<MemoryInsight[]> {
@@ -972,18 +993,17 @@ export class DbStorage implements IStorage {
   }
   
   async getEmotionalPatterns(patientId: string, isActive?: boolean): Promise<EmotionalPatternAnalysis[]> {
-    let query = db.select()
+    const whereConditions = isActive !== undefined 
+      ? and(
+          eq(emotionalPatternAnalysis.patientId, patientId),
+          eq(emotionalPatternAnalysis.isActive, isActive)
+        )
+      : eq(emotionalPatternAnalysis.patientId, patientId);
+    
+    return await db.select()
       .from(emotionalPatternAnalysis)
-      .where(eq(emotionalPatternAnalysis.patientId, patientId));
-    
-    if (isActive !== undefined) {
-      query = query.where(and(
-        eq(emotionalPatternAnalysis.patientId, patientId),
-        eq(emotionalPatternAnalysis.isActive, isActive)
-      ));
-    }
-    
-    return await query.orderBy(desc(emotionalPatternAnalysis.detectedAt));
+      .where(whereConditions)
+      .orderBy(desc(emotionalPatternAnalysis.detectedAt));
   }
   
   async updatePatternOccurrence(id: string): Promise<EmotionalPatternAnalysis | undefined> {
@@ -1008,7 +1028,7 @@ export class DbStorage implements IStorage {
   async getRecentSnapshots(limit: number = 100): Promise<SessionMemorySnapshot[]> {
     const result = await db.select()
       .from(sessionMemorySnapshots)
-      .orderBy(desc(sessionMemorySnapshots.createdAt))
+      .orderBy(desc(sessionMemorySnapshots.timestamp))
       .limit(limit);
     return result;
   }
