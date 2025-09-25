@@ -37,6 +37,7 @@ import { eq, desc, and, count, sql } from 'drizzle-orm';
 export interface IStorage {
   // User methods
   getUser(id: string): Promise<User | undefined>;
+  getUserById(id: string): Promise<User | undefined>; // Alias for getUser
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   upsertUser(user: { id: string; email: string; firstName: string; lastName: string; profileImageUrl: string }): Promise<User>;
@@ -146,6 +147,10 @@ export class MemStorage implements IStorage {
   // User methods
   async getUser(id: string): Promise<User | undefined> {
     return this.users.get(id);
+  }
+
+  async getUserById(id: string): Promise<User | undefined> {
+    return this.getUser(id); // Alias for getUser
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
@@ -695,6 +700,10 @@ export class DbStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> {
     const result = await db.select().from(users).where(eq(users.id, id));
     return result[0];
+  }
+
+  async getUserById(id: string): Promise<User | undefined> {
+    return this.getUser(id); // Alias for getUser
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {

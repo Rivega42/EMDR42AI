@@ -8,6 +8,7 @@ import { backendAITherapist } from "./services/aiTherapist";
 import { sessionMemoryRouter } from "./routes/sessionMemory";
 import { ProgressAnalyticsService } from "./services/progressAnalytics";
 import { setupAuth, isAuthenticated } from "./replitAuth";
+import type { User } from "../shared/schema";
 import { 
   deterministicValue,
   deterministicBoolean,
@@ -25,28 +26,17 @@ import type {
   VoiceEmotionData 
 } from "../shared/types";
 
-// Express session type augmentation
-declare global {
-  namespace Express {
-    interface Request {
-      session?: {
-        user?: {
-          id: string;
-          role: string;
-          name: string;
-        };
-      };
-    }
-  }
-}
-
+// AuthenticatedRequest interface for proper session typing
 interface AuthenticatedRequest extends Request {
-  session: {
-    user?: {
-      id: string;
-      role: string;
-      name: string;
-    };
+  user?: {
+    claims: any;
+    access_token: string;
+    refresh_token: string;
+    expires_at: number;
+    id?: string;
+  };
+  session: Request['session'] & {
+    user?: User;
   };
 }
 
@@ -378,13 +368,13 @@ function generateRiskPredictions(snapshots: any[]): any[] {
     if (recentStress.length > 0) {
       const avgStress = recentStress.reduce((a, b) => a + b, 0) / recentStress.length;
       
-      if (avgStress > 0.6) {
+      if ((avgStress ?? 0) > 0.6) {
         risks.push({
           id: 'risk_stress',
           type: 'stagnation',
-          probability: Math.min(0.9, avgStress),
+          probability: Math.min(0.9, avgStress ?? 0),
           timeframe: 'Next 1-2 sessions',
-          severity: avgStress > 0.8 ? 'high' : 'medium',
+          severity: (avgStress ?? 0) > 0.8 ? 'high' : 'medium',
           description: 'High stress levels detected in recent sessions',
           indicators: ['Elevated stress markers', 'Emotional volatility'],
           mitigationStrategies: ['Implement stress reduction techniques', 'Adjust session intensity'],
@@ -457,7 +447,9 @@ const requireAuth = isAuthenticated;
 // RBAC middleware for role-based access control
 function requireRole(allowedRoles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
-    const userRole = req.session?.user?.role || 'patient';
+    const user = (req as AuthenticatedRequest).user;
+    const sessionUser = (req as AuthenticatedRequest).session?.user;
+    const userRole = sessionUser?.role || (user?.claims?.role) || 'patient';
     
     if (!allowedRoles.includes(userRole)) {
       return res.status(403).json({ 
@@ -496,7 +488,9 @@ function sanitizePII(data: any): any {
 
 // Rate limiting middleware for AI endpoints (10 requests per minute)
 function aiRateLimit(req: Request, res: Response, next: NextFunction) {
-  const userId = req.session?.user?.id;
+  const user = (req as AuthenticatedRequest).user;
+  const sessionUser = (req as AuthenticatedRequest).session?.user;
+  const userId = sessionUser?.id || user?.claims?.sub || user?.id;
   if (!userId) {
     return res.status(401).json({ error: "Authentication required" });
   }
@@ -522,7 +516,9 @@ function aiRateLimit(req: Request, res: Response, next: NextFunction) {
 // Session ownership validation
 function validateSessionOwnership(req: Request, res: Response, next: NextFunction) {
   const { sessionId } = req.body.context || req.body;
-  const userId = req.session?.user?.id;
+  const user = (req as AuthenticatedRequest).user;
+  const sessionUser = (req as AuthenticatedRequest).session?.user;
+  const userId = sessionUser?.id || user?.claims?.sub || user?.id;
   
   if (!sessionId) {
     return res.status(400).json({ error: "Session ID required" });
@@ -544,6 +540,41 @@ function validateSessionOwnership(req: Request, res: Response, next: NextFunctio
 export async function registerRoutes(app: Express): Promise<Server> {
   // CRITICAL FIX: Setup authentication middleware first
   await setupAuth(app);
+  
+  // Authentication endpoints
+  app.get("/api/auth/user", requireAuth, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (!user || !user.claims) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      // Get user data from storage
+      const userData = await storage.getUser(user.claims.sub);
+      if (!userData) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Return user data including role
+      res.json({
+        id: userData.id,
+        email: userData.email,
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+        profileImageUrl: userData.profileImageUrl,
+        role: userData.role,
+        username: userData.username,
+        specialization: userData.specialization,
+        licenseNumber: userData.licenseNumber,
+        clinicalLevel: userData.clinicalLevel,
+        createdAt: userData.createdAt,
+        updatedAt: userData.updatedAt
+      });
+    } catch (error) {
+      console.error("Get user error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
   
   // AI Therapist endpoints - secure backend-only processing with authentication
   
@@ -1144,7 +1175,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // STT Rate limiting middleware
   const sttRateLimit = (req: Request, res: Response, next: NextFunction) => {
-    const identifier = `${req.session?.user?.id || 'anonymous'}_${req.ip}`;
+    const user = (req as AuthenticatedRequest).user;
+    const sessionUser = (req as AuthenticatedRequest).session?.user;
+    const userId = sessionUser?.id || user?.claims?.sub || user?.id;
+    const identifier = `${userId || 'anonymous'}_${req.ip || 'unknown'}`;
     
     if (!checkSTTRateLimit(identifier)) {
       return res.status(429).json({ 
@@ -1530,7 +1564,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // TTS Rate limiting middleware
   const ttsRateLimit = (req: Request, res: Response, next: NextFunction) => {
-    const identifier = `${req.session?.user?.id || 'anonymous'}_${req.ip}`;
+    const user = (req as AuthenticatedRequest).user;
+    const sessionUser = (req as AuthenticatedRequest).session?.user;
+    const userId = sessionUser?.id || user?.claims?.sub || user?.id;
+    const identifier = `${userId || 'anonymous'}_${req.ip || 'unknown'}`;
     
     if (!checkTTSRateLimit(identifier)) {
       return res.status(429).json({ 
@@ -1898,9 +1935,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Add dynamic insights based on actual data
       if (snapshots.length > 5) {
         const recentStress = snapshots.slice(0, 5).map(s => s.stressLevel).filter(Boolean);
-        const avgStress = recentStress.reduce((a, b) => a + b, 0) / recentStress.length;
+        const avgStress = recentStress.length > 0 
+          ? recentStress.reduce((a, b) => (a ?? 0) + (b ?? 0), 0) / recentStress.length
+          : 0;
         
-        if (avgStress > 0.6) {
+        if ((avgStress ?? 0) > 0.6) {
           insights.unshift({
             type: 'warning',
             priority: 'high',
@@ -2524,7 +2563,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }, 300000);
   
   // Save emotion capture with validation and rate limiting
-  app.post("/api/emotions/capture", async (req, res) => {
+  app.post("/api/emotions/capture", async (req: AuthenticatedRequest, res) => {
     try {
       // Demo mode: allow unauthenticated users with demo prefix
       let isDemo = false;
@@ -2533,11 +2572,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!req.session?.user) {
         // Allow demo mode for emotion capture
         isDemo = true;
-        userId = 'demo-user-' + req.ip.replace(/\./g, '-');
+        userId = 'demo-user-' + (req.ip || 'unknown').replace(/\./g, '-');
         console.log('🎭 Demo mode emotion capture for:', userId);
       }
       
-      const rateLimitKey = `${userId}_${req.ip}`;
+      const rateLimitKey = `${userId}_${req.ip || 'unknown'}`;
       if (!checkRateLimit(rateLimitKey)) {
         return res.status(429).json({ 
           error: "Rate limit exceeded. Maximum 20 requests per minute." 
@@ -3053,7 +3092,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // JWT Token generation endpoint for session authentication
   // SECURITY: Protected with authentication - only authenticated users can generate tokens
-  app.post("/api/auth/generate-token", requireAuth, (req, res) => {
+  app.post("/api/auth/generate-token", requireAuth, (req: AuthenticatedRequest, res) => {
     const { sessionId, userId } = req.body;
     
     if (!sessionId) {

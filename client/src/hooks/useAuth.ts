@@ -1,14 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+// This file is deprecated. Use useAuth from AuthContext instead.
+// Import: import { useAuth } from '@/contexts/AuthContext';
 
-export function useAuth() {
-  const { data: user, isLoading } = useQuery({
-    queryKey: ["/api/auth/user"],
-    retry: false,
-  });
-
-  return {
-    user,
-    isLoading,
-    isAuthenticated: !!user,
-  };
-}
+export { useAuth } from '@/contexts/AuthContext';

@@ -3,7 +3,10 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { AdminRoute, TherapistRoute, PatientRoute } from "@/components/auth/ProtectedRoute";
 import Home from "@/pages/Home";
+import LoginPage from "@/pages/LoginPage";
 import PatientDashboardPage from "@/pages/PatientDashboardPage";
 import TherapistDashboardPage from "@/pages/TherapistDashboardPage";
 import AdminDashboardPage from "@/pages/AdminDashboardPage";
@@ -24,20 +27,86 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
-      <Route path="/patient" component={PatientDashboardPage} />
-      <Route path="/therapist" component={TherapistDashboardPage} />
-      <Route path="/admin" component={AdminDashboardPage} />
-      <Route path="/admin/sessions" component={AdminSessionsPage} />
-      <Route path="/admin/users" component={AdminUsersPage} />
-      <Route path="/admin/analytics" component={AdminAnalyticsPage} />
-      <Route path="/admin/system" component={AdminSystemPage} />
-      <Route path="/analytics" component={AnalyticsPage} />
-      <Route path="/session" component={EMDRSessionPage} />
-      <Route path="/patient/settings" component={PatientSettingsPage} />
-      <Route path="/therapist/settings" component={TherapistSettingsPage} />
-      <Route path="/admin/settings" component={AdminSettingsPage} />
-      <Route path="/patient/session" component={PatientSessionPage} />
-      <Route path="/therapist/session" component={TherapistSessionPage} />
+      <Route path="/login" component={LoginPage} />
+      
+      {/* Patient routes - accessible by patients, therapists, and admins */}
+      <Route path="/patient">
+        <PatientRoute>
+          <PatientDashboardPage />
+        </PatientRoute>
+      </Route>
+      <Route path="/patient/settings">
+        <PatientRoute>
+          <PatientSettingsPage />
+        </PatientRoute>
+      </Route>
+      <Route path="/patient/session">
+        <PatientRoute>
+          <PatientSessionPage />
+        </PatientRoute>
+      </Route>
+      
+      {/* Therapist routes - accessible by therapists and admins */}
+      <Route path="/therapist">
+        <TherapistRoute>
+          <TherapistDashboardPage />
+        </TherapistRoute>
+      </Route>
+      <Route path="/therapist/settings">
+        <TherapistRoute>
+          <TherapistSettingsPage />
+        </TherapistRoute>
+      </Route>
+      <Route path="/therapist/session">
+        <TherapistRoute>
+          <TherapistSessionPage />
+        </TherapistRoute>
+      </Route>
+      
+      {/* Admin routes - PROTECTED: Only accessible by admin users */}
+      <Route path="/admin">
+        <AdminRoute>
+          <AdminDashboardPage />
+        </AdminRoute>
+      </Route>
+      <Route path="/admin/sessions">
+        <AdminRoute>
+          <AdminSessionsPage />
+        </AdminRoute>
+      </Route>
+      <Route path="/admin/users">
+        <AdminRoute>
+          <AdminUsersPage />
+        </AdminRoute>
+      </Route>
+      <Route path="/admin/analytics">
+        <AdminRoute>
+          <AdminAnalyticsPage />
+        </AdminRoute>
+      </Route>
+      <Route path="/admin/system">
+        <AdminRoute>
+          <AdminSystemPage />
+        </AdminRoute>
+      </Route>
+      <Route path="/admin/settings">
+        <AdminRoute>
+          <AdminSettingsPage />
+        </AdminRoute>
+      </Route>
+      
+      {/* General routes - accessible by authenticated users */}
+      <Route path="/analytics">
+        <TherapistRoute>
+          <AnalyticsPage />
+        </TherapistRoute>
+      </Route>
+      <Route path="/session">
+        <PatientRoute>
+          <EMDRSessionPage />
+        </PatientRoute>
+      </Route>
+      
       {/* Fallback to 404 */}
       <Route component={NotFound} />
     </Switch>
@@ -47,10 +116,12 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Router />
-      </TooltipProvider>
+      <AuthProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Router />
+        </TooltipProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }
