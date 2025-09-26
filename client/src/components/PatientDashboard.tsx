@@ -116,9 +116,9 @@ export default function PatientDashboard() {
                 <p className="text-muted-foreground">Ваш путь к выздоровлению • С нами с {mockPatient.joinedDate}</p>
               </div>
             </div>
-            <Button size="lg" className="bg-primary" data-testid="button-new-session">
+            <Button size="lg" className="bg-primary" data-testid="button-new-session" onClick={() => window.location.href = '/patient/session'}>
               <Video className="w-5 h-5 mr-2" />
-              Присоединиться к сессии
+              Начать AI сессию
             </Button>
           </div>
         </div>
@@ -327,9 +327,9 @@ export default function PatientDashboard() {
                       </div>
                     </div>
                     
-                    <Button className="w-full" data-testid="button-join-next-session">
+                    <Button className="w-full" data-testid="button-join-next-session" onClick={() => window.location.href = '/patient/session'}>
                       <Video className="w-4 h-4 mr-2" />
-                      Присоединиться к сессии
+                      Начать AI сессию  
                     </Button>
                   </div>
                 </CardContent>

@@ -67,6 +67,40 @@ export default function PatientSessionView() {
   const [sessionPhase, setSessionPhase] = useState<'waiting' | 'preparation' | 'desensitization' | 'installation' | 'body-scan' | 'closure'>('waiting');
   const [sessionDuration, setSessionDuration] = useState(0);
   const [currentInstruction, setCurrentInstruction] = useState('Ожидание подключения психолога...');
+  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
+  const [hasMediaPermission, setHasMediaPermission] = useState(false);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  
+  // Request camera and microphone permissions on component mount
+  useEffect(() => {
+    const requestMediaPermissions = async () => {
+      try {
+        console.log('🎥 Запрашиваем доступ к камере и микрофону...');
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: true, 
+          audio: true 
+        });
+        
+        console.log('✅ Доступ к медиа получен!', stream);
+        setMediaStream(stream);
+        setHasMediaPermission(true);
+        setCurrentInstruction('Камера и микрофон подключены. Готов к сессии!');
+      } catch (error) {
+        console.error('❌ Ошибка доступа к медиа:', error);
+        setMediaError(error instanceof Error ? error.message : 'Ошибка доступа к камере/микрофону');
+        setCurrentInstruction('Нужен доступ к камере и микрофону для проведения сессии');
+      }
+    };
+
+    requestMediaPermissions();
+
+    // Cleanup function to stop media stream when component unmounts
+    return () => {
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
   
   // TODO: Get user and therapist data from authentication/session context
   const user = {
