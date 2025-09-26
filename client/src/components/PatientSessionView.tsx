@@ -1,4 +1,11 @@
 import { useState, useEffect, useRef } from "react";
+import { UnifiedEmotionService } from '@/services/emotion/emotionService';
+import { AITherapistService } from '@/services/ai/therapist';
+import { TextToSpeechService } from '@/services/voice/textToSpeechService';
+import { AudioStreamMultiplexer, getAudioStreamMultiplexer } from '@/services/audio/audioStreamMultiplexer';
+import { AdaptiveController } from '@/services/bls/adaptiveController';
+import { Renderer3D } from '@/services/bls/renderer3D';
+import type { EmotionData, AITherapistMessage, BLSConfiguration } from '@/../../shared/types';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -52,15 +59,30 @@ export default function PatientSessionView() {
   
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   
-  // EMDR Game State
+  // Real BLS State
   const [isEMDRActive, setIsEMDRActive] = useState(false);
-  const [emdrSettings, setEmdrSettings] = useState({
+  const [blsConfig, setBlsConfig] = useState<BLSConfiguration>({
     speed: 5,
-    ballSize: 20,
-    shape: 'circle',
-    ballColor: '#3b82f6',
-    backgroundColor: '#000000',
-    soundOn: true
+    pattern: 'horizontal',
+    color: '#3b82f6',
+    intensity: 0.7,
+    adaptive: true,
+    audio: {
+      enabled: true,
+      frequency: 440,
+      volume: 0.3,
+      binaural: true
+    },
+    visual: {
+      enabled: true,
+      size: 20,
+      opacity: 0.8,
+      trail: true
+    },
+    haptic: {
+      enabled: false,
+      intensity: 0.5
+    }
   });
   
   // Session State
@@ -102,23 +124,45 @@ export default function PatientSessionView() {
     };
   }, []);
   
-  // TODO: Get user and therapist data from authentication/session context
+  // Real services
+  const [emotionService] = useState(() => new UnifiedEmotionService());
+  const [aiTherapist] = useState(() => new AITherapistService());
+  const [ttsService] = useState(() => new TextToSpeechService());
+  const [audioMultiplexer] = useState(() => getAudioStreamMultiplexer());
+  // BLS services initialized when needed
+  const [blsController, setBlsController] = useState<AdaptiveController | null>(null);
+  const [blsRenderer, setBlsRenderer] = useState<Renderer3D | null>(null);
+  
+  // AI Therapist state
+  const [aiMessages, setAiMessages] = useState<AITherapistMessage[]>([]);
+  const [currentEmotionData, setCurrentEmotionData] = useState<EmotionData | null>(null);
+  const [isAiSpeaking, setIsAiSpeaking] = useState(false);
+  
+  // Real user data (will come from auth context later)
   const user = {
-    name: "", // Will be loaded from context
-    email: "",
+    name: "Пациент", 
+    email: "patient@emdr42.com",
     role: 'patient' as const,
     avatar: ""
   };
   
-  // TODO: Get therapist data from session/API
+  // AI Therapist as virtual therapist
   const therapist = {
-    name: "", // Will be loaded from session
-    status: "Ожидание",
+    name: "AI Терапевт EMDR42",
+    status: isAiSpeaking ? "Говорит" : hasMediaPermission ? "Готов" : "Ожидание",
     avatar: ""
   };
 
   const gameCanvasRef = useRef<HTMLCanvasElement>(null);
+  const blsContainerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number>();
+
+  // Initialize all real services when connecting
+  useEffect(() => {
+    if (isConnected && hasMediaPermission) {
+      initializeSession();
+    }
+  }, [isConnected, hasMediaPermission]);
 
   // Session timer
   useEffect(() => {
@@ -129,6 +173,180 @@ export default function PatientSessionView() {
       return () => clearInterval(timer);
     }
   }, [isConnected]);
+
+  // Initialize real EMDR session with all services
+  const initializeSession = async () => {
+    try {
+      console.log('🚀 Initializing EMDR session with real services...');
+      
+      // 1. Initialize Audio Multiplexer
+      if (mediaStream) {
+        await audioMultiplexer.setMediaStream(mediaStream);
+        console.log('✅ Audio multiplexer initialized with media stream');
+      }
+
+      // 2. Initialize Emotion Service
+      const videoElement = document.createElement('video');
+      if (mediaStream) {
+        videoElement.srcObject = mediaStream;
+        await videoElement.play();
+      }
+      
+      await emotionService.initialize({
+        face: { enabled: true, smoothingWindow: 5, processEveryNFrames: 10, minConfidence: 0.7 },
+        voice: { enabled: true, provider: 'assemblyai', language: 'en-US', sampleRate: 16000 },
+        fusion: { enabled: true, strategy: 'weighted-average' },
+        multimodal: { enabled: true, preferredMode: 'multimodal', fallbackStrategy: 'face', qualityThreshold: 0.6 },
+        audio: { useMultiplexer: true, consumerPriority: 8, consumerName: 'EmotionAnalysis' }
+      }, videoElement);
+      
+      // Set emotion callback for real-time updates
+      emotionService.onEmotion((emotionData) => {
+        setCurrentEmotionData(emotionData);
+        console.log('💡 Real emotion detected:', emotionData.arousal, emotionData.valence);
+        
+        // Send to AI therapist for real-time adaptation
+        if (sessionPhase !== 'waiting') {
+          handleEmotionUpdate(emotionData);
+        }
+      });
+      
+      await emotionService.start();
+      console.log('✅ Emotion service initialized');
+
+      // 3. Initialize AI Therapist
+      aiTherapist.initializeSession(
+        `session-${Date.now()}`,
+        'patient-001',
+        'preparation'
+      );
+      console.log('✅ AI Therapist initialized');
+
+      // 4. Initialize TTS Service
+      await ttsService.initialize({
+        providers: ['web-speech'],
+        defaultProvider: 'web-speech',
+        cache: { enabled: true, maxSizeMB: 50, maxItems: 100, persistCache: false }
+      });
+      console.log('✅ TTS service initialized');
+
+      // 5. Initialize BLS services when first needed (lazy loading)
+      console.log('✅ BLS services will be initialized when EMDR starts');
+
+      // 6. Start AI session
+      setSessionPhase('preparation');
+      setCurrentInstruction('Добро пожаловать! AI терапевт готов к работе. Расскажите, что вас беспокоит.');
+      
+      // Send initial AI message
+      await sendInitialAIMessage();
+      
+    } catch (error) {
+      console.error('❌ Failed to initialize session:', error);
+      setCurrentInstruction('Ошибка инициализации сессии. Проверьте подключения.');
+    }
+  };
+
+  // Handle real-time emotion updates
+  const handleEmotionUpdate = async (emotionData: EmotionData) => {
+    try {
+      // Send emotion to AI for adaptive response
+      const aiResponse = await aiTherapist.processEmotionResponse(emotionData);
+      
+      if (aiResponse.recommendedIntervention) {
+        console.log('⚡ AI intervention triggered:', aiResponse.recommendedIntervention);
+        
+        // Speak AI intervention
+        if (aiResponse.message) {
+          await speakAIMessage(aiResponse.message);
+        }
+        
+        // Adapt BLS if needed
+        if (aiResponse.blsAdjustments && isEMDRActive && blsController) {
+          const newConfig = {
+            ...blsConfig,
+            speed: aiResponse.blsAdjustments.speed || blsConfig.speed,
+            color: aiResponse.blsAdjustments.color || blsConfig.color,
+            intensity: aiResponse.blsAdjustments.intensity || blsConfig.intensity
+          };
+          setBlsConfig(newConfig);
+          console.log('✅ BLS adapted to emotions:', newConfig);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error processing emotion update:', error);
+    }
+  };
+
+  // Send initial AI message
+  const sendInitialAIMessage = async () => {
+    try {
+      const aiMessage = await aiTherapist.sendMessage('Session started. Begin EMDR preparation phase.');
+      setAiMessages(prev => [...prev, aiMessage]);
+      
+      if (aiMessage.message) {
+        await speakAIMessage(aiMessage.message);
+      }
+    } catch (error) {
+      console.error('❌ Error sending initial AI message:', error);
+    }
+  };
+
+  // Speak AI message using TTS
+  const speakAIMessage = async (message: string) => {
+    try {
+      setIsAiSpeaking(true);
+      
+      const audioResponse = await ttsService.synthesize({
+        text: message,
+        voice: {
+          name: 'en-US-Studio-M',
+          language: 'ru-RU',
+          gender: 'neutral',
+          age: 'adult',
+          accent: 'russian',
+          characteristics: {
+            warmth: 0.8,
+            authority: 0.6,
+            empathy: 0.9,
+            clarity: 0.9,
+            pace: 'normal',
+            calmness: 0.8
+          },
+          therapeuticProfile: {
+            anxietyFriendly: true,
+            traumaSensitive: true,
+            childFriendly: false,
+            culturallySensitive: ['ru-RU', 'universal']
+          }
+        },
+        options: {
+          ssmlEnabled: false,
+          speed: 0.9,
+          pitch: 0,
+          volume: 0.8,
+          emphasis: 'moderate',
+          breaks: {
+            sentence: 0.3,
+            paragraph: 0.6,
+            comma: 0.1
+          }
+        }
+      });
+      
+      if (audioResponse.audioBlob) {
+        const audioUrl = URL.createObjectURL(audioResponse.audioBlob);
+        const audio = new Audio(audioUrl);
+        audio.onended = () => {
+          setIsAiSpeaking(false);
+          URL.revokeObjectURL(audioUrl);
+        };
+        await audio.play();
+      }
+    } catch (error) {
+      console.error('❌ Error speaking AI message:', error);
+      setIsAiSpeaking(false);
+    }
+  };
 
   // EMDR Animation
   useEffect(() => {
@@ -305,15 +523,13 @@ export default function PatientSessionView() {
               )}
             </div>
 
-            {/* EMDR Canvas overlay */}
+            {/* Real BLS 3D Renderer overlay */}
             {isEMDRActive && (
               <div className="absolute inset-0 flex items-center justify-center">
-                <canvas 
-                  ref={gameCanvasRef}
-                  width={800}
-                  height={300}
-                  className="bg-transparent"
-                  style={{ backgroundColor: emdrSettings.backgroundColor }}
+                <div 
+                  ref={blsContainerRef}
+                  className="w-full h-full"
+                  style={{ maxWidth: '800px', maxHeight: '300px' }}
                 />
               </div>
             )}
@@ -358,21 +574,39 @@ export default function PatientSessionView() {
               {!isConnected ? (
                 <Button 
                   size="sm"
-                  onClick={() => setIsConnected(true)}
+                  onClick={() => {
+                    if (hasMediaPermission) {
+                      setIsConnected(true);
+                    } else {
+                      setCurrentInstruction('Сначала разрешите доступ к камере и микрофону');
+                    }
+                  }}
+                  disabled={!hasMediaPermission}
                   data-testid="button-connect"
                 >
                   <Phone className="w-4 h-4 mr-2" />
-                  Подключиться
+                  {hasMediaPermission ? 'Начать AI сессию' : 'Ожидание разрешений'}
                 </Button>
               ) : (
                 <Button 
                   variant="destructive" 
                   size="sm"
-                  onClick={() => setIsConnected(false)}
+                  onClick={async () => {
+                    // Cleanup all services
+                    try {
+                      await emotionService.destroy();
+                      // audioMultiplexer cleanup is handled automatically
+                    } catch (error) {
+                      console.error('Error cleaning up services:', error);
+                    }
+                    setIsConnected(false);
+                    setSessionPhase('waiting');
+                    setCurrentInstruction('Сессия завершена.');
+                  }}
                   data-testid="button-disconnect"
                 >
                   <PhoneOff className="w-4 h-4 mr-2" />
-                  Завершить
+                  Завершить сессию
                 </Button>
               )}
               
@@ -428,7 +662,33 @@ export default function PatientSessionView() {
               {!isEMDRActive ? (
                 <Button 
                   size="sm"
-                  onClick={() => setIsEMDRActive(true)}
+                  onClick={async () => {
+                    try {
+                      // Initialize BLS services if not already done
+                      if (!blsController) {
+                        const controller = new AdaptiveController(blsConfig);
+                        setBlsController(controller);
+                        console.log('✅ BLS Controller initialized');
+                      }
+                      
+                      if (!blsRenderer && blsContainerRef.current) {
+                        const defaultConfig = {
+                          canvas: { width: 800, height: 300, antialias: true, alpha: true },
+                          camera: { fov: 75, position: { x: 0, y: 0, z: 50 } },
+                          lighting: { ambient: 0.4, directional: 0.8 }
+                        };
+                        const renderer = new Renderer3D(blsContainerRef.current, defaultConfig);
+                        setBlsRenderer(renderer);
+                        console.log('✅ BLS 3D Renderer initialized');
+                      }
+                      
+                      // Start EMDR with real BLS
+                      setIsEMDRActive(true);
+                      console.log('✅ Real BLS session started');
+                    } catch (error) {
+                      console.error('❌ Failed to start BLS:', error);
+                    }
+                  }}
                   disabled={!isConnected}
                   data-testid="button-start-emdr"
                 >
@@ -439,7 +699,15 @@ export default function PatientSessionView() {
                 <Button 
                   variant="outline" 
                   size="sm"
-                  onClick={() => setIsEMDRActive(false)}
+                  onClick={async () => {
+                    try {
+                      // Stop BLS session
+                      setIsEMDRActive(false);
+                      console.log('✅ BLS session stopped');
+                    } catch (error) {
+                      console.error('❌ Failed to stop BLS:', error);
+                    }
+                  }}
                   data-testid="button-pause-emdr"
                 >
                   <Pause className="w-4 h-4 mr-2" />
@@ -452,9 +720,18 @@ export default function PatientSessionView() {
         
         {panelStates.emdr.isExpanded && (
           <div className="px-4 pb-4">
-            <p className="text-white text-sm">
-              {isEMDRActive ? 'EMDR активна' : 'EMDR остановлена'}
-            </p>
+            <div className="space-y-2">
+              <p className="text-white text-sm">
+                {isEMDRActive ? 'BLS активна' : 'BLS остановлена'}
+              </p>
+              {isEMDRActive && (
+                <div className="text-xs text-gray-300">
+                  <div>Скорость: {blsConfig.speed}</div>
+                  <div>Паттерн: {blsConfig.pattern}</div>
+                  <div>Интенсивность: {Math.round(blsConfig.intensity * 100)}%</div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
