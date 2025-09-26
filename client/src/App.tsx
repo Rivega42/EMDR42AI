@@ -35,6 +35,11 @@ function Router() {
           <PatientDashboardPage />
         </PatientRoute>
       </Route>
+      <Route path="/patient/dashboard">
+        <PatientRoute>
+          <PatientDashboardPage />
+        </PatientRoute>
+      </Route>
       <Route path="/patient/settings">
         <PatientRoute>
           <PatientSettingsPage />
@@ -48,6 +53,11 @@ function Router() {
       
       {/* Therapist routes - accessible by therapists and admins */}
       <Route path="/therapist">
+        <TherapistRoute>
+          <TherapistDashboardPage />
+        </TherapistRoute>
+      </Route>
+      <Route path="/therapist/dashboard">
         <TherapistRoute>
           <TherapistDashboardPage />
         </TherapistRoute>
