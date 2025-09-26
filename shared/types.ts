@@ -988,10 +988,38 @@ export interface AITherapistMessage {
   phase: EMDRPhase;
   emotionalContext?: EmotionData;
   confidence: number; // 0-1 confidence in the response
+  crisisDetection?: CrisisDetection;
   metadata?: {
     reasoning?: string;
     suggestedActions?: string[];
     criticalityLevel?: 'low' | 'medium' | 'high' | 'crisis';
+    voiceContext?: {
+      prosody: {
+        arousal: number;
+        valence: number;
+        intensity: number;
+        pace: number;
+        volume: number;
+        pitch: number;
+        stability: number;
+      };
+      emotions: {
+        confidence: number;
+        excitement: number;
+        stress: number;
+        fatigue: number;
+        engagement: number;
+        uncertainty: number;
+        authenticity: number;
+      };
+      confidence: number;
+      recommendedVoiceStyle?: string;
+    };
+    therapeuticVoiceGuidance?: {
+      warmth: number;
+      pace: 'slow' | 'normal' | 'fast';
+      empathy: number;
+    };
   };
 }
 

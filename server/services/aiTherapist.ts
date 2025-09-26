@@ -20,6 +20,13 @@ import type {
   AIChatContext,
   EMDRProtocol
 } from '../../shared/types';
+import {
+  createDefaultBLSConfiguration,
+  createDefaultBLSAudioConfig,
+  createDefaultBLSHapticsConfig,
+  createDefaultBLS3DConfig,
+  createDefaultBLSTransitionConfig
+} from '../../shared/types';
 
 // Voice Context Data for enhanced AI processing
 interface VoiceContextData {
@@ -271,7 +278,7 @@ export class BackendAITherapistService {
     voiceContext?: VoiceContextData
   ): Promise<AITherapistMessage> {
     try {
-      const systemPrompt = this.createChatSystemPrompt(context, voiceContext);
+      const systemPrompt = this.createChatSystemPrompt(context);
       const userPrompt = this.createUserPrompt(message, context, voiceContext);
 
       const response = await this.openai.chat.completions.create({
@@ -646,25 +653,27 @@ ${historyContext}
 
       const aiResponse = JSON.parse(response.choices[0].message.content!);
       
-      return {
+      return createDefaultBLSConfiguration({
         speed: aiResponse.speed || this.calculateOptimalSpeed(arousalLevel),
         pattern: aiResponse.pattern || this.selectPattern(valenceLevel, arousalLevel),
         color: aiResponse.color || this.selectColor(emotionData),
         size: aiResponse.size || this.calculateOptimalSize(arousalLevel),
         soundEnabled: aiResponse.soundEnabled ?? (arousalLevel > 0.7),
-        adaptiveMode: true
-      };
+        adaptiveMode: true,
+        sessionPhase: 'preparation' // Default phase
+      });
     } catch (error) {
       console.error('AI BLS generation error:', error);
       // Fallback to rule-based algorithm
-      return {
+      return createDefaultBLSConfiguration({
         speed: this.calculateOptimalSpeed(arousalLevel),
         pattern: this.selectPattern(valenceLevel, arousalLevel),
         color: this.selectColor(emotionData),
         size: this.calculateOptimalSize(arousalLevel),
         soundEnabled: arousalLevel > 0.7,
-        adaptiveMode: true
-      };
+        adaptiveMode: true,
+        sessionPhase: 'preparation' // Default phase
+      });
     }
   }
 
@@ -1015,7 +1024,13 @@ Valence: ${valence.toFixed(2)} (${valenceDesc})
    */
   private calculateBLSAdjustments(emotionData: EmotionData): Partial<BLSConfiguration> {
     const { arousal, valence } = emotionData;
-    const adjustments: Partial<BLSConfiguration> = {};
+    const baseConfig = createDefaultBLSConfiguration();
+    const adjustments: Partial<BLSConfiguration> = {
+      audio: baseConfig.audio,
+      haptics: baseConfig.haptics,
+      rendering3D: baseConfig.rendering3D,
+      transitions: baseConfig.transitions
+    };
     
     // Speed adjustments
     if (arousal > 0.8) {
@@ -1038,6 +1053,15 @@ Valence: ${valence.toFixed(2)} (${valenceDesc})
       adjustments.pattern = '3d-wave'; // More engaging
     }
     
+    // Audio adjustments based on emotional state
+    if (arousal > 0.8) {
+      adjustments.audio = createDefaultBLSAudioConfig({
+        enabled: true,
+        audioType: 'white-noise',
+        volume: 0.3 // Lower volume for high arousal
+      });
+    }
+    
     return adjustments;
   }
 
@@ -1055,14 +1079,15 @@ Valence: ${valence.toFixed(2)} (${valenceDesc})
         nextSteps: ['Мониторинг эмоционального состояния'],
         concerns: []
       },
-      adaptiveBLS: {
+      adaptiveBLS: createDefaultBLSConfiguration({
         speed: 5,
         pattern: 'horizontal',
         color: '#3b82f6',
         size: 20,
         soundEnabled: true,
-        adaptiveMode: true
-      },
+        adaptiveMode: true,
+        sessionPhase: phase
+      }),
       estimatedTimeRemaining: phaseInfo?.typicalDuration || 10,
       readinessForNextPhase: {
         isReady: false,
@@ -1081,7 +1106,7 @@ Valence: ${valence.toFixed(2)} (${valenceDesc})
       emotionalState: this.analyze98EmotionalStates(emotionData),
       interventionLevel: 'mild',
       recommendations: [],
-      blsAdjustments: {},
+      blsAdjustments: createDefaultBLSConfiguration(),
       phaseTransitionAdvice: {
         canAdvance: false,
         shouldRegress: false,
@@ -1100,20 +1125,38 @@ Valence: ${valence.toFixed(2)} (${valenceDesc})
     return {
       phase,
       message: 'Продолжайте следить за движущимся объектом',
-      suggestedBLS: {
+      suggestedBLS: createDefaultBLSConfiguration({
         speed: 5,
         pattern: 'horizontal',
         color: '#3b82f6',
         size: 20,
         soundEnabled: true,
-        adaptiveMode: false
-      },
+        adaptiveMode: false,
+        sessionPhase: phase
+      }),
       emotionalAnalysis: {
         timestamp: Date.now(),
         arousal: 0.5,
         valence: 0.5,
         affects: {},
-        basicEmotions: {}
+        basicEmotions: {},
+        sources: {
+          face: null,
+          voice: null,
+          combined: false
+        },
+        fusion: {
+          confidence: 0.5,
+          agreement: 0.5,
+          dominantSource: 'balanced',
+          conflictResolution: 'default fallback'
+        },
+        quality: {
+          faceQuality: 0.5,
+          voiceQuality: 0.5,
+          environmentalNoise: 0.3,
+          overallQuality: 0.5
+        }
       },
       personalizedRecommendations: [],
       nextPhaseReadiness: {
@@ -1165,23 +1208,42 @@ Valence: ${valence.toFixed(2)} (${valenceDesc})
   }
 
   private getDefaultResponse(phase: string): AITherapistResponse {
+    const emdrPhase = phase as EMDRPhase;
     return {
-      phase: phase as EMDRPhase,
+      phase: emdrPhase,
       message: 'Продолжайте следить за движущимся объектом',
-      suggestedBLS: {
+      suggestedBLS: createDefaultBLSConfiguration({
         speed: 5,
         pattern: 'horizontal',
         color: '#3b82f6',
         size: 20,
         soundEnabled: true,
-        adaptiveMode: false
-      },
+        adaptiveMode: false,
+        sessionPhase: emdrPhase
+      }),
       emotionalAnalysis: {
         timestamp: Date.now(),
         arousal: 0.5,
         valence: 0.5,
         affects: {},
-        basicEmotions: {}
+        basicEmotions: {},
+        sources: {
+          face: null,
+          voice: null,
+          combined: false
+        },
+        fusion: {
+          confidence: 0.5,
+          agreement: 0.5,
+          dominantSource: 'balanced',
+          conflictResolution: 'default fallback'
+        },
+        quality: {
+          faceQuality: 0.5,
+          voiceQuality: 0.5,
+          environmentalNoise: 0.3,
+          overallQuality: 0.5
+        }
       }
     };
   }
