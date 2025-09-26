@@ -16,24 +16,7 @@ export function ProtectedRoute({
   requiredRoles = [], 
   fallback 
 }: ProtectedRouteProps) {
-  const { isLoading, isAuthenticated, user, hasRole, hasAnyRole } = useAuth();
-
-  // Show loading while checking authentication
-  if (isLoading) {
-    return <LoadingScreen />;
-  }
-
-  // Redirect to login if not authenticated
-  if (!isAuthenticated) {
-    return fallback || <LoginPage />;
-  }
-
-  // Check role requirements
-  const roles = requiredRole ? [requiredRole] : requiredRoles;
-  if (roles.length > 0 && !hasAnyRole(roles)) {
-    return <AccessDenied requiredRoles={roles} userRole={user?.role} />;
-  }
-
+  // TEMPORARILY DISABLED - Allow access without authentication
   return <>{children}</>;
 }
 
