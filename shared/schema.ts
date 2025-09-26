@@ -21,6 +21,7 @@ export const users = pgTable("users", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
+  password: text("password"), // Nullable for OIDC users, required for local auth
   // EMDR-specific fields
   role: text("role").notNull().default('patient'), // 'patient', 'therapist', 'admin', 'researcher'
   username: text("username").unique(), // Optional username for display

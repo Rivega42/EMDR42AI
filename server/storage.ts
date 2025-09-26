@@ -169,6 +169,7 @@ export class MemStorage implements IStorage {
       firstName: insertUser.firstName ?? null,
       lastName: insertUser.lastName ?? null,
       profileImageUrl: null,
+      password: null, // For OIDC users
       specialization: null,
       licenseNumber: null,
       clinicalLevel: null,
@@ -201,6 +202,7 @@ export class MemStorage implements IStorage {
         firstName: userData.firstName,
         lastName: userData.lastName,
         profileImageUrl: userData.profileImageUrl,
+        password: null, // OIDC users don't have passwords
         role: 'patient', // Default role for new Replit users
         username: null,
         specialization: null,
