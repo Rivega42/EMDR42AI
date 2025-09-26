@@ -740,6 +740,9 @@ export class DbStorage implements IStorage {
   }
   
   async upsertUser(userData: { id: string; email: string; firstName: string; lastName: string; profileImageUrl: string }): Promise<User> {
+    // Generate username from email if not provided - critical for NOT NULL constraint
+    const username = userData.email ? userData.email.split('@')[0] : userData.id.substring(0, 8);
+    
     // Use PostgreSQL ON CONFLICT for upsert behavior
     const result = await db.insert(users)
       .values({
@@ -748,6 +751,7 @@ export class DbStorage implements IStorage {
         firstName: userData.firstName,
         lastName: userData.lastName,
         profileImageUrl: userData.profileImageUrl,
+        username: username, // Add generated username
         role: 'patient', // Default role for new Replit users
         updatedAt: new Date()
       })
@@ -758,6 +762,7 @@ export class DbStorage implements IStorage {
           firstName: userData.firstName,
           lastName: userData.lastName,
           profileImageUrl: userData.profileImageUrl,
+          username: username, // Update username too
           updatedAt: new Date()
         }
       })
