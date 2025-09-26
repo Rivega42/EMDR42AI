@@ -15,6 +15,7 @@ import AdminUsersPage from "@/pages/AdminUsersPage";
 import AdminAnalyticsPage from "@/pages/AdminAnalyticsPage";
 import AdminSystemPage from "@/pages/AdminSystemPage";
 import EMDRSessionPage from "@/pages/EMDRSessionPage";
+import EMDRConductorTestPage from "@/pages/EMDRConductorTestPage";
 import PatientSettingsPage from "@/pages/PatientSettingsPage";
 import TherapistSettingsPage from "@/pages/TherapistSettingsPage";
 import AdminSettingsPage from "@/pages/AdminSettingsPage";
@@ -115,6 +116,9 @@ function Router() {
         <PatientRoute>
           <EMDRSessionPage />
         </PatientRoute>
+      </Route>
+      <Route path="/conductor-test">
+        <EMDRConductorTestPage />
       </Route>
       
       {/* Fallback to 404 */}
