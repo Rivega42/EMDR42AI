@@ -107,7 +107,7 @@ export class GoogleCloudTTSProvider {
   /**
    * Initialize the provider by loading available voices
    */
-  async initialize(): Promise<void> {
+  async initialize(config?: any): Promise<void> {
     try {
       console.log('🔧 Initializing Google Cloud TTS Provider...');
       

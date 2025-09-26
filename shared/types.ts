@@ -1839,6 +1839,179 @@ export interface WebSpeechTTSConfig {
   };
 }
 
+// === ElevenLabs TTS Configuration ===
+
+// ElevenLabs Voice Configuration
+export interface ElevenLabsVoiceConfig {
+  voiceId: string; // ElevenLabs voice ID (e.g., 'EXAVITQu4vr4xnSDxMaL')
+  model: 'eleven_monolingual_v1' | 'eleven_multilingual_v1' | 'eleven_multilingual_v2' | 'eleven_turbo_v2';
+  stability: number; // 0-1, voice stability (consistency)
+  similarity_boost: number; // 0-1, voice similarity boost (clarity vs creativity)
+  style?: number; // 0-1, style exaggeration (emotional range)
+  use_speaker_boost?: boolean; // Enhanced speaker similarity
+  // Therapeutic optimizations
+  therapeuticProfile: {
+    emotionalContext: 'calm' | 'empathetic' | 'supportive' | 'instructional' | 'emergency';
+    paceAdjustment: number; // 0.5-2.0, speaking pace multiplier
+    emphasisLevel: 'subtle' | 'moderate' | 'strong'; // Emotional emphasis
+    pausePattern: 'minimal' | 'natural' | 'therapeutic'; // Pause patterns
+  };
+}
+
+// ElevenLabs TTS Provider Interface
+export interface ElevenLabsTTSProvider {
+  provider: 'elevenlabs';
+  config: {
+    apiKey?: string; // Server will provide via token endpoint
+    serverEndpoint: string; // Server proxy endpoint for API calls
+    timeout: number; // Request timeout in ms
+    retryAttempts: number; // Number of retry attempts
+    maxConcurrentRequests: number; // Rate limiting
+    // WebRTC Streaming Configuration
+    streaming: {
+      enabled: boolean;
+      chunkSize: number; // Audio chunk size for streaming
+      bufferSize: number; // Client-side buffer size
+      latencyOptimization: boolean; // Optimize for low latency
+      adaptiveQuality: boolean; // Adjust quality based on connection
+    };
+    // Voice Selection
+    voices: {
+      default: ElevenLabsVoiceConfig;
+      therapeutic: {
+        // Русифицированные терапевтические голоса
+        спокойный: ElevenLabsVoiceConfig; // Calm, reassuring voice
+        эмпатичный: ElevenLabsVoiceConfig; // Empathetic, understanding voice
+        поддерживающий: ElevenLabsVoiceConfig; // Supportive, encouraging voice
+        инструктивный: ElevenLabsVoiceConfig; // Clear, instructional voice
+        экстренный: ElevenLabsVoiceConfig; // Emergency, direct voice
+      };
+      // Context-based voice mapping
+      contextMapping: {
+        preparation: string; // Voice ID for preparation phase
+        assessment: string; // Voice ID for assessment phase
+        desensitization: string; // Voice ID for desensitization phase
+        installation: string; // Voice ID for installation phase
+        'body-scan': string; // Voice ID for body scan phase
+        closure: string; // Voice ID for closure phase
+        reevaluation: string; // Voice ID for reevaluation phase
+        integration: string; // Voice ID for integration phase
+      };
+    };
+    // Error handling and fallback
+    fallback: {
+      enableFallback: boolean;
+      fallbackProvider: TTSProvider; // Fallback to another provider
+      maxErrorsBeforeFallback: number;
+      cooldownPeriod: number; // ms before retrying after errors
+    };
+  };
+}
+
+// WebRTC Audio Streaming Configuration for ElevenLabs
+export interface ElevenLabsWebRTCConfig {
+  enabled: boolean;
+  connection: {
+    iceServers: Array<{
+      urls: string | string[];
+      username?: string;
+      credential?: string;
+    }>;
+    bundlePolicy: 'balanced' | 'max-compat' | 'max-bundle';
+    iceCandidatePoolSize: number;
+  };
+  audio: {
+    sampleRate: 16000 | 22050 | 24000 | 44100; // Supported sample rates
+    channels: 1 | 2; // Mono or stereo
+    bitrate: number; // Target bitrate in kbps
+    codec: 'opus' | 'pcm' | 'aac'; // Preferred audio codec
+    echoCancellation: boolean;
+    noiseSuppression: boolean;
+    autoGainControl: boolean;
+  };
+  streaming: {
+    chunkDuration: number; // ms, duration of each audio chunk
+    bufferTime: number; // ms, client-side buffer time
+    maxLatency: number; // ms, maximum acceptable latency
+    adaptiveBitrate: boolean; // Adjust bitrate based on connection
+    jitterBuffer: {
+      enabled: boolean;
+      targetDelay: number; // ms, target jitter buffer delay
+      maxDelay: number; // ms, maximum jitter buffer delay
+    };
+  };
+  quality: {
+    dynamicAdjustment: boolean; // Adjust quality based on connection
+    minQuality: 'low' | 'medium' | 'high'; // Minimum acceptable quality
+    maxQuality: 'low' | 'medium' | 'high'; // Maximum quality to use
+    qualitySteps: number; // Number of quality adjustment steps
+  };
+}
+
+// ElevenLabs API Response Types
+export interface ElevenLabsGenerationResponse {
+  audio: ArrayBuffer; // Generated audio data
+  history_item_id?: string; // ElevenLabs generation ID
+  request_id?: string; // Request tracking ID
+  metadata?: {
+    duration: number; // Audio duration in seconds
+    size: number; // Audio file size in bytes
+    sample_rate: number; // Audio sample rate
+    model_used: string; // Model used for generation
+    voice_id: string; // Voice ID used
+    settings: {
+      stability: number;
+      similarity_boost: number;
+      style?: number;
+    };
+  };
+}
+
+// ElevenLabs Voice List Response
+export interface ElevenLabsVoice {
+  voice_id: string;
+  name: string;
+  category: string;
+  labels: Record<string, string>;
+  description?: string;
+  preview_url?: string;
+  available_for_tiers?: string[];
+  settings?: {
+    stability: number;
+    similarity_boost: number;
+    style?: number;
+    use_speaker_boost?: boolean;
+  };
+  // Therapeutic categorization
+  therapeutic_suitability?: {
+    anxiety_friendly: boolean;
+    trauma_sensitive: boolean;
+    child_friendly: boolean;
+    elderly_friendly: boolean;
+    gender_neutral: boolean;
+    cultural_adaptability: string[]; // Supported cultures/languages
+  };
+}
+
+// ElevenLabs Streaming Configuration
+export interface ElevenLabsStreamingOptions {
+  model: ElevenLabsVoiceConfig['model'];
+  voice_settings: {
+    stability: number;
+    similarity_boost: number;
+    style?: number;
+    use_speaker_boost?: boolean;
+  };
+  pronunciation_dictionary_locators?: Array<{
+    pronunciation_dictionary_id: string;
+    version_id: string;
+  }>;
+  generation_config?: {
+    chunk_length_schedule?: number[];
+  };
+  output_format?: 'mp3_22050_32' | 'mp3_44100_32' | 'pcm_16000' | 'pcm_22050' | 'pcm_24000' | 'pcm_44100';
+}
+
 // Updated TTS Service Configuration
 export interface TTSServiceConfig {
   primaryProvider?: TTSProvider;
@@ -1851,6 +2024,11 @@ export interface TTSServiceConfig {
   fallbackEnabled?: boolean;
   cacheService?: any;
   personalizationService?: any;
+  providerConfigs?: {
+    elevenlabs?: any;
+    googleCloud?: any;
+    webSpeech?: any;
+  };
   retry?: {
     maxAttempts: number;
     backoffMultiplier: number; // Exponential backoff

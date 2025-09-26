@@ -227,7 +227,8 @@ const VOICE_PROVIDER_KEYS = {
   assemblyai: process.env.ASSEMBLYAI_API_KEY || '',
   humeai: process.env.HUME_AI_API_KEY || '',
   azure: process.env.AZURE_SPEECH_KEY || '',
-  google: process.env.GOOGLE_CLOUD_API_KEY || ''
+  google: process.env.GOOGLE_CLOUD_API_KEY || '',
+  elevenlabs: process.env.ELEVENLABS_API_KEY || ''
 };
 
 // ============================================================================
@@ -1097,6 +1098,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           name: "Google Cloud Speech", 
           available: !!VOICE_PROVIDER_KEYS.google,
           features: ["Google AI", "Auto-punctuation", "Cloud integration"]
+        },
+        elevenlabs: { 
+          name: "ElevenLabs", 
+          available: !!VOICE_PROVIDER_KEYS.elevenlabs,
+          features: ["Neural voice synthesis", "Therapeutic voices", "WebRTC streaming", "Russian support"]
         }
       };
       
@@ -1109,6 +1115,332 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     }
   });
+
+  // ============================================================================
+  // ELEVENLABS TTS ENDPOINTS - Neural Voice Synthesis for EMDR Therapy
+  // ============================================================================
+
+  // ElevenLabs Token Generation Schema
+  const ElevenLabsTokenRequestSchema = z.object({
+    sessionId: z.string().min(1).max(100).optional(),
+    context: z.enum(['therapy', 'preview', 'testing']).default('therapy'),
+    duration: z.number().min(300).max(7200).default(3600) // 5 minutes to 2 hours
+  });
+
+  // ElevenLabs Synthesis Request Schema
+  const ElevenLabsSynthesisRequestSchema = z.object({
+    text: z.string().min(1).max(5000),
+    voice_id: z.string().min(1),
+    model_id: z.enum(['eleven_monolingual_v1', 'eleven_multilingual_v1', 'eleven_multilingual_v2', 'eleven_turbo_v2']).default('eleven_multilingual_v2'),
+    voice_settings: z.object({
+      stability: z.number().min(0).max(1).default(0.8),
+      similarity_boost: z.number().min(0).max(1).default(0.9),
+      style: z.number().min(0).max(1).optional(),
+      use_speaker_boost: z.boolean().default(true)
+    }),
+    output_format: z.enum(['mp3_22050_32', 'mp3_44100_32', 'pcm_16000', 'pcm_22050', 'pcm_24000', 'pcm_44100']).default('mp3_22050_32'),
+    optimize_streaming_latency: z.number().min(0).max(4).default(2)
+  });
+
+  // ElevenLabs Voice List Request Schema
+  const ElevenLabsVoicesRequestSchema = z.object({
+    therapeutic_only: z.boolean().default(true)
+  });
+
+  // Rate limiting for ElevenLabs endpoints
+  const elevenlabsRateLimitStore = new Map();
+
+  const checkElevenLabsRateLimit = (identifier: string, endpoint: string): boolean => {
+    const now = Date.now();
+    const key = `${identifier}_${endpoint}`;
+    const limit = elevenlabsRateLimitStore.get(key);
+    
+    if (!limit || now > limit.resetTime) {
+      elevenlabsRateLimitStore.set(key, {
+        count: 1,
+        resetTime: now + 60000 // 1 minute window
+      });
+      return true;
+    }
+    
+    // Different limits for different endpoints
+    const limits = {
+      token: 10,      // 10 token requests per minute
+      synthesize: 30, // 30 synthesis requests per minute
+      voices: 5       // 5 voice list requests per minute
+    };
+    
+    const maxRequests = limits[endpoint] || 10;
+    
+    if (limit.count >= maxRequests) {
+      return false;
+    }
+    
+    limit.count++;
+    return true;
+  };
+
+  // ElevenLabs rate limiting middleware
+  const elevenlabsRateLimit = (endpoint: string) => (req: Request, res: Response, next: NextFunction) => {
+    const user = (req as AuthenticatedRequest).user;
+    const sessionUser = (req as AuthenticatedRequest).session?.user;
+    const userId = sessionUser?.id || user?.claims?.sub || user?.id;
+    const identifier = `${userId || 'anonymous'}_${req.ip || 'unknown'}`;
+    
+    if (!checkElevenLabsRateLimit(identifier, endpoint)) {
+      return res.status(429).json({ 
+        error: `ElevenLabs ${endpoint} rate limit exceeded`,
+        retryAfter: 60
+      });
+    }
+    
+    next();
+  };
+
+  // Generate ephemeral token for ElevenLabs API access
+  app.post("/api/voice/elevenlabs/token", requireAuth, elevenlabsRateLimit('token'), async (req, res) => {
+    try {
+      const body = ElevenLabsTokenRequestSchema.parse(req.body);
+      
+      // Check if ElevenLabs API key is available
+      if (!VOICE_PROVIDER_KEYS.elevenlabs) {
+        return res.status(503).json({
+          error: "ElevenLabs service unavailable",
+          message: "ElevenLabs API key not configured"
+        });
+      }
+
+      const user = (req as AuthenticatedRequest).user;
+      const sessionUser = (req as AuthenticatedRequest).session?.user;
+      const userId = sessionUser?.id || user?.claims?.sub || user?.id || 'anonymous';
+
+      // Generate JWT token with limited scope for ElevenLabs access
+      const tokenPayload = {
+        userId,
+        sessionId: body.sessionId || generateDeterministicId('session', userId, Date.now().toString()),
+        context: body.context,
+        service: 'elevenlabs',
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + body.duration, // Token expires based on duration
+        scope: ['text-to-speech', 'voice-list'] // Limited permissions
+      };
+
+      const token = jwt.sign(tokenPayload, JWT_SECRET);
+      const expiresAt = Date.now() + (body.duration * 1000);
+
+      console.log(`🔑 Generated ElevenLabs token for user ${userId}, context: ${body.context}, duration: ${body.duration}s`);
+
+      res.json({
+        token,
+        expiresAt,
+        context: body.context,
+        service: 'elevenlabs',
+        permissions: tokenPayload.scope
+      });
+
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({
+          error: "Validation error",
+          details: error.errors
+        });
+      } else {
+        console.error("ElevenLabs token generation error:", error);
+        res.status(500).json({
+          error: "Failed to generate ElevenLabs token"
+        });
+      }
+    }
+  });
+
+  // Get available therapeutic voices from ElevenLabs
+  app.get("/api/voice/elevenlabs/voices", requireAuth, elevenlabsRateLimit('voices'), async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({
+          error: "Authorization token required"
+        });
+      }
+
+      const token = authHeader.substring(7);
+      let decoded;
+      
+      try {
+        decoded = jwt.verify(token, JWT_SECRET) as any;
+      } catch (jwtError) {
+        return res.status(401).json({
+          error: "Invalid or expired token"
+        });
+      }
+
+      if (decoded.service !== 'elevenlabs' || !decoded.scope.includes('voice-list')) {
+        return res.status(403).json({
+          error: "Insufficient permissions for voice list access"
+        });
+      }
+
+      const query = ElevenLabsVoicesRequestSchema.parse(req.query);
+
+      // Call ElevenLabs API to get voices
+      const response = await fetch('https://api.elevenlabs.io/v1/voices', {
+        method: 'GET',
+        headers: {
+          'xi-api-key': VOICE_PROVIDER_KEYS.elevenlabs,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`ElevenLabs API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      let voices = data.voices || [];
+
+      // Filter to therapeutic voices if requested
+      if (query.therapeutic_only) {
+        // Add therapeutic categorization logic
+        voices = voices.map((voice: any) => ({
+          ...voice,
+          therapeutic_suitability: {
+            anxiety_friendly: ['calm', 'soothing', 'gentle'].some(trait => 
+              voice.name.toLowerCase().includes(trait) || 
+              voice.description?.toLowerCase().includes(trait)
+            ),
+            trauma_sensitive: ['warm', 'calm', 'gentle', 'supportive'].some(trait => 
+              voice.name.toLowerCase().includes(trait) || 
+              voice.description?.toLowerCase().includes(trait)
+            ),
+            child_friendly: voice.category === 'premade' && voice.labels?.age === 'young',
+            elderly_friendly: true,
+            gender_neutral: voice.labels?.gender === 'neutral',
+            cultural_adaptability: voice.labels?.accent ? [voice.labels.accent] : ['universal']
+          }
+        }));
+      }
+
+      console.log(`📋 Retrieved ${voices.length} ElevenLabs voices for user ${decoded.userId}, therapeutic_only: ${query.therapeutic_only}`);
+
+      res.json({
+        voices,
+        count: voices.length,
+        therapeutic_only: query.therapeutic_only
+      });
+
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({
+          error: "Validation error",
+          details: error.errors
+        });
+      } else {
+        console.error("ElevenLabs voices error:", error);
+        res.status(500).json({
+          error: "Failed to retrieve voices"
+        });
+      }
+    }
+  });
+
+  // Synthesize speech using ElevenLabs
+  app.post("/api/voice/elevenlabs/synthesize", requireAuth, elevenlabsRateLimit('synthesize'), async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({
+          error: "Authorization token required"
+        });
+      }
+
+      const token = authHeader.substring(7);
+      let decoded;
+      
+      try {
+        decoded = jwt.verify(token, JWT_SECRET) as any;
+      } catch (jwtError) {
+        return res.status(401).json({
+          error: "Invalid or expired token"
+        });
+      }
+
+      if (decoded.service !== 'elevenlabs' || !decoded.scope.includes('text-to-speech')) {
+        return res.status(403).json({
+          error: "Insufficient permissions for text-to-speech access"
+        });
+      }
+
+      const body = ElevenLabsSynthesisRequestSchema.parse(req.body);
+
+      // Call ElevenLabs API for synthesis
+      const elevenLabsResponse = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${body.voice_id}`, {
+        method: 'POST',
+        headers: {
+          'xi-api-key': VOICE_PROVIDER_KEYS.elevenlabs,
+          'Content-Type': 'application/json',
+          'Accept': 'audio/mpeg'
+        },
+        body: JSON.stringify({
+          text: body.text,
+          model_id: body.model_id,
+          voice_settings: body.voice_settings,
+          output_format: body.output_format,
+          optimize_streaming_latency: body.optimize_streaming_latency
+        })
+      });
+
+      if (!elevenLabsResponse.ok) {
+        const errorData = await elevenLabsResponse.json().catch(() => ({}));
+        throw new Error(`ElevenLabs synthesis error: ${elevenLabsResponse.status} - ${errorData.detail || 'Unknown error'}`);
+      }
+
+      // Stream the audio response directly to client
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Content-Length', elevenLabsResponse.headers.get('content-length') || '');
+      
+      // Add metadata headers
+      res.setHeader('X-Provider', 'elevenlabs');
+      res.setHeader('X-Voice-ID', body.voice_id);
+      res.setHeader('X-Model-ID', body.model_id);
+      res.setHeader('X-Session-ID', decoded.sessionId);
+
+      console.log(`🎵 Synthesizing speech for user ${decoded.userId}, voice: ${body.voice_id}, model: ${body.model_id}, text length: ${body.text.length}, format: ${body.output_format}`);
+
+      // Pipe the audio stream to the response
+      elevenLabsResponse.body?.pipeTo(new WritableStream({
+        write(chunk) {
+          res.write(chunk);
+        },
+        close() {
+          res.end();
+        }
+      }));
+
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({
+          error: "Validation error",
+          details: error.errors
+        });
+      } else {
+        console.error("ElevenLabs synthesis error:", error);
+        res.status(500).json({
+          error: "Failed to synthesize speech",
+          message: error.message
+        });
+      }
+    }
+  });
+
+  // Cleanup old ElevenLabs rate limit entries
+  setInterval(() => {
+    const now = Date.now();
+    elevenlabsRateLimitStore.forEach((value, key) => {
+      if (now > value.resetTime) {
+        elevenlabsRateLimitStore.delete(key);
+      }
+    });
+  }, 300000); // Clean up every 5 minutes
 
   // ============================================================================
   // SPEECH-TO-TEXT (STT) ENDPOINTS - Revolutionary Patient Voice Recognition

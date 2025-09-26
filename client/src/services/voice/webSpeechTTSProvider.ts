@@ -100,7 +100,7 @@ export class WebSpeechTTSProvider {
   /**
    * Initialize the Web Speech API provider
    */
-  async initialize(): Promise<void> {
+  async initialize(config?: any): Promise<void> {
     try {
       console.log('🔧 Initializing Web Speech API TTS Provider...');
       

@@ -32,7 +32,7 @@ import { generateDeterministicId } from '@/lib/deterministicUtils';
 // Provider interface that all TTS providers must implement
 interface TTSProviderInterface {
   name: TTSProvider;
-  initialize(config: any): Promise<void>;
+  initialize(config?: any): Promise<void>;
   synthesize(request: TTSSynthesisRequest): Promise<TTSSynthesisResponse>;
   isAvailable(): boolean;
   getStatus(): any;
@@ -335,8 +335,8 @@ export class TextToSpeechService {
 
   private mergeWithDefaults(config: Partial<TTSServiceConfig>): TTSServiceConfig {
     return {
-      primaryProvider: config.primaryProvider || 'google-cloud',
-      fallbackProviders: config.fallbackProviders || ['web-speech'],
+      primaryProvider: config.primaryProvider || 'elevenlabs',
+      fallbackProviders: config.fallbackProviders || ['google-cloud', 'web-speech'],
       defaultVoice: config.defaultVoice || DEFAULT_VOICE_CONFIG,
       defaultQuality: config.defaultQuality || DEFAULT_AUDIO_QUALITY,
       cache: {
@@ -407,28 +407,69 @@ export class TextToSpeechService {
   }
 
   private async initializeProviders(): Promise<void> {
-    // We'll implement provider initialization here
-    // For now, create placeholder providers that will be implemented in separate files
     const allProviders = [this.currentProvider, ...this.fallbackQueue];
     
     for (const providerName of allProviders) {
       try {
-        // Dynamic provider loading will be implemented here
         console.log(`📡 Initializing ${providerName} provider...`);
         
-        // Initialize provider status
+        let provider: TTSProviderInterface | null = null;
+        
+        // Dynamic provider loading
+        switch (providerName) {
+          case 'elevenlabs':
+            const { ElevenLabsTTSProvider } = await import('./providers/elevenlabsTTSProvider');
+            provider = new ElevenLabsTTSProvider(this.config.providerConfigs?.elevenlabs);
+            break;
+            
+          case 'google-cloud':
+            const { GoogleCloudTTSProvider } = await import('./googleCloudTTSProvider');
+            provider = new GoogleCloudTTSProvider(this.config.providerConfigs?.googleCloud);
+            break;
+            
+          case 'web-speech':
+            const { WebSpeechTTSProvider } = await import('./webSpeechTTSProvider');
+            provider = new WebSpeechTTSProvider(this.config.providerConfigs?.webSpeech);
+            break;
+            
+          default:
+            console.warn(`⚠️ Unknown provider: ${providerName}`);
+            continue;
+        }
+        
+        if (provider) {
+          await provider.initialize({});
+          this.providers.set(providerName, provider);
+          
+          // Initialize provider status
+          this.status.providers[providerName] = {
+            available: provider.isAvailable(),
+            latency: 0,
+            errorRate: 0,
+            usage: {
+              requestsToday: 0,
+              quotaRemaining: undefined,
+              costToday: 0
+            }
+          };
+          
+          console.log(`✅ ${providerName} provider initialized successfully`);
+        }
+        
+      } catch (error) {
+        console.warn(`⚠️ Failed to initialize ${providerName}:`, error);
+        
+        // Initialize with error status
         this.status.providers[providerName] = {
           available: false,
           latency: 0,
-          errorRate: 0,
+          errorRate: 1,
           usage: {
             requestsToday: 0,
             quotaRemaining: undefined,
             costToday: 0
           }
         };
-      } catch (error) {
-        console.warn(`⚠️ Failed to initialize ${providerName}:`, error);
       }
     }
   }
@@ -739,8 +780,10 @@ export function getTTSService(config?: Partial<TTSServiceConfig>): TextToSpeechS
 
 /**
  * Default therapeutic voice configurations
+ * Русифицированные терапевтические голоса для EMDR терапии
  */
 export const THERAPEUTIC_VOICES = {
+  // English voices
   calming: {
     name: 'en-US-Studio-O',
     language: 'en-US',
@@ -752,7 +795,8 @@ export const THERAPEUTIC_VOICES = {
       authority: 0.4,
       empathy: 0.95,
       clarity: 0.9,
-      pace: 'slow' as const
+      pace: 'slow' as const,
+      calmness: 0.95
     },
     therapeuticProfile: {
       anxietyFriendly: true,
@@ -772,7 +816,8 @@ export const THERAPEUTIC_VOICES = {
       authority: 0.9,
       empathy: 0.7,
       clarity: 0.95,
-      pace: 'normal' as const
+      pace: 'normal' as const,
+      calmness: 0.6
     },
     therapeuticProfile: {
       anxietyFriendly: false,
@@ -792,13 +837,121 @@ export const THERAPEUTIC_VOICES = {
       authority: 0.3,
       empathy: 0.9,
       clarity: 0.85,
-      pace: 'slow' as const
+      pace: 'slow' as const,
+      calmness: 0.9
     },
     therapeuticProfile: {
       anxietyFriendly: true,
       traumaSensitive: true,
       childFriendly: true,
       culturallySensitive: ['en-US', 'universal']
+    }
+  },
+  
+  // Русские терапевтические голоса для EMDR
+  спокойный: {
+    name: 'pNInz6obpgDQGcFmaJgB', // ElevenLabs Adam - calm, reassuring
+    language: 'ru-RU',
+    gender: 'male' as const,
+    age: 'adult' as const,
+    accent: 'russian',
+    characteristics: {
+      warmth: 0.9,
+      authority: 0.5,
+      empathy: 0.95,
+      clarity: 0.9,
+      pace: 'slow' as const,
+      calmness: 0.95
+    },
+    therapeuticProfile: {
+      anxietyFriendly: true,
+      traumaSensitive: true,
+      childFriendly: true,
+      culturallySensitive: ['ru-RU', 'be-BY', 'uk-UA']
+    }
+  },
+  эмпатичный: {
+    name: 'EXAVITQu4vr4xnSDxMaL', // ElevenLabs Bella - empathetic, understanding
+    language: 'ru-RU',
+    gender: 'female' as const,
+    age: 'adult' as const,
+    accent: 'russian',
+    characteristics: {
+      warmth: 0.95,
+      authority: 0.4,
+      empathy: 0.98,
+      clarity: 0.85,
+      pace: 'slow' as const,
+      calmness: 0.9
+    },
+    therapeuticProfile: {
+      anxietyFriendly: true,
+      traumaSensitive: true,
+      childFriendly: true,
+      culturallySensitive: ['ru-RU', 'be-BY', 'uk-UA']
+    }
+  },
+  поддерживающий: {
+    name: 'ErXwobaYiN019PkySvjV', // ElevenLabs Antoni - supportive, encouraging
+    language: 'ru-RU',
+    gender: 'male' as const,
+    age: 'adult' as const,
+    accent: 'russian',
+    characteristics: {
+      warmth: 0.85,
+      authority: 0.6,
+      empathy: 0.9,
+      clarity: 0.9,
+      pace: 'normal' as const,
+      calmness: 0.8
+    },
+    therapeuticProfile: {
+      anxietyFriendly: true,
+      traumaSensitive: true,
+      childFriendly: false,
+      culturallySensitive: ['ru-RU', 'be-BY', 'uk-UA']
+    }
+  },
+  инструктивный: {
+    name: 'AZnzlk1XvdvUeBnXmlld', // ElevenLabs Domi - clear, instructional
+    language: 'ru-RU',
+    gender: 'female' as const,
+    age: 'adult' as const,
+    accent: 'russian',
+    characteristics: {
+      warmth: 0.7,
+      authority: 0.9,
+      empathy: 0.7,
+      clarity: 0.98,
+      pace: 'normal' as const,
+      calmness: 0.7
+    },
+    therapeuticProfile: {
+      anxietyFriendly: false,
+      traumaSensitive: true,
+      childFriendly: false,
+      culturallySensitive: ['ru-RU']
+    }
+  },
+  экстренный: {
+    name: 'VR6AewLTigWG4xSOukaG', // ElevenLabs Arnold - emergency, direct
+    language: 'ru-RU',
+    gender: 'male' as const,
+    age: 'adult' as const,
+    accent: 'russian',
+    characteristics: {
+      warmth: 0.5,
+      authority: 0.95,
+      empathy: 0.6,
+      clarity: 0.98,
+      pace: 'fast' as const,
+      calmness: 0.4
+    },
+    therapeuticProfile: {
+      anxietyFriendly: false,
+      traumaSensitive: false,
+      childFriendly: false,
+      culturallySensitive: ['ru-RU']
     }
   }
 } as const;
