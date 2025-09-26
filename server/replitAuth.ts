@@ -84,8 +84,16 @@ export async function setupAuth(app: Express) {
     verified(null, user);
   };
 
-  for (const domain of process.env
-    .REPLIT_DOMAINS!.split(",")) {
+  // Support both development and production domains
+  const domains = process.env.REPLIT_DOMAINS!.split(",");
+  
+  // Add known production domain
+  const prodDomain = 'emdr-42-romanvgudkov.replit.app';
+  const allDomains = [...domains, prodDomain];
+  
+  console.log("🔐 Setting up OAuth for domains:", allDomains);
+  
+  for (const domain of allDomains) {
     const strategy = new Strategy(
       {
         name: `replitauth:${domain}`,
@@ -96,6 +104,7 @@ export async function setupAuth(app: Express) {
       verify,
     );
     passport.use(strategy);
+    console.log(`✅ OAuth strategy registered for: ${domain}`);
   }
 
   passport.serializeUser((user: Express.User, cb) => cb(null, user));
